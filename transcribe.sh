@@ -26,15 +26,12 @@ fi
 
 # pyannote тянем только по требованию: с ним приезжает torch (~200 МБ даже в CPU-сборке)
 if [[ " $* " == *" --diarize "* ]]; then
-  # проверяем факт установки, а не импорт: pyannote 3.x не импортируется на свежем
-  # torchaudio без заглушек, которые ставит уже сам transcribe.py
   "$VENV/bin/python" -c "import importlib.metadata as m; m.version('pyannote.audio')" 2>/dev/null || {
-    echo "[setup] ставлю pyannote.audio + torch (CPU-сборка, без CUDA)..." >&2
+    echo "[setup] ставлю pyannote.audio 4.x + torch (CPU-сборка, без CUDA)..." >&2
     "$VENV/bin/pip" install -q torch torchaudio --index-url https://download.pytorch.org/whl/cpu
-    # pyannote 4.x тянет модель speaker-diarization-community-1 — она gated и без принятия
-    # лицензии отдаёт 403; 3.x работает с уже скачанной speaker-diarization-3.1.
-    # huggingface_hub 1.x убрал use_auth_token, который зовёт pyannote 3.x.
-    "$VENV/bin/pip" install -q "pyannote.audio<4" "huggingface_hub<1.0"
+    # pyannote 4.x -> модель по умолчанию speaker-diarization-community-1 (gated: auto,
+    # надо один раз принять соглашение на её странице HF; активнее развивается, чем 3.1).
+    "$VENV/bin/pip" install -q "pyannote.audio>=4"
   }
   # pyannote спрашивает токен HF для gated-моделей; значение в лог не попадает
   [[ -z "${HF_TOKEN:-}" && -f "$HOME/.tokens" ]] && {

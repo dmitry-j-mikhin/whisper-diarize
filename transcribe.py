@@ -154,22 +154,36 @@ def cached_pipeline_config():
 
 
 def diarize(audio: Path, args):
-    """pyannote/speaker-diarization-3.1 -> [(start, end, speaker), …]."""
+    """Диаризация -> [(start, end, speaker), …]. По умолчанию community-1 (pyannote 4.x)."""
     import inspect
     import torch
+    import pyannote.audio as pa
 
-    patch_torch_for_pyannote3()
-    from pyannote.audio import Pipeline
+    major = int((pa.__version__ or "0").split(".")[0])
+    model = getattr(args, "diar_model", "pyannote/speaker-diarization-community-1")
 
-    source = cached_pipeline_config() or "pyannote/speaker-diarization-3.1"
-    log(f"[diar] поднимаю pyannote/speaker-diarization-3.1 ({'кэш' if isinstance(source, Path) else 'хаб'})")
+    if major < 4:
+        # старый pyannote 3.x: community-1 недоступен, откатываемся на 3.1 из кэша
+        # (с заглушками совместимости для свежих torch/torchaudio)
+        patch_torch_for_pyannote3()
+        from pyannote.audio import Pipeline
+        source = cached_pipeline_config() or "pyannote/speaker-diarization-3.1"
+        model = "pyannote/speaker-diarization-3.1"
+        log(f"[diar] pyannote {pa.__version__}: {model} ({'кэш' if isinstance(source, Path) else 'хаб'})")
+    else:
+        # pyannote 4.x: community-1 напрямую, заглушки 3.x не нужны
+        from pyannote.audio import Pipeline
+        source = model
+        log(f"[diar] pyannote {pa.__version__}: {model}")
+
     torch.set_num_threads(args.threads)
     # в pyannote.audio 4.x use_auth_token переименован в token
     kw_tok = "token" if "token" in inspect.signature(Pipeline.from_pretrained).parameters \
              else "use_auth_token"
     pipe = Pipeline.from_pretrained(str(source), **{kw_tok: hf_token()})
     if pipe is None:
-        raise RuntimeError("pyannote не отдал пайплайн — проверь HF-токен и доступ к модели")
+        raise RuntimeError("pyannote не отдал пайплайн — проверь HF-токен и доступ к модели "
+                           "(для community-1 нужно принять соглашение на странице модели)")
     pipe.to(torch.device("cpu"))
 
     kw = {}
@@ -202,10 +216,13 @@ def diarize(audio: Path, args):
             f"  ETA {hhmmss(eta)}")
 
     ann = pipe({"waveform": wav, "sample_rate": sr}, hook=hook, **kw)
-    turns = [(t.start, t.end, sp) for t, _, sp in ann.itertracks(yield_label=True)]
+    # pyannote 4.x без legacy отдаёт объект с .speaker_diarization; 3.x — сразу Annotation
+    diar = getattr(ann, "speaker_diarization", ann)
+    turns = [(t.start, t.end, sp) for t, _, sp in diar.itertracks(yield_label=True)]
     who = sorted({sp for *_, sp in turns})
     log(f"[diar] {len(turns)} реплик, говорящих: {len(who)} ({', '.join(who)}), "
         f"за {hhmmss(time.time() - t0)}")
+    diarize.model_used = model  # чтобы main записал в meta фактическую модель
     return turns
 
 
@@ -389,6 +406,9 @@ def main():
                     help="подсказка с терминами/именами — улучшает написание жаргона")
     ap.add_argument("--keep-audio", action="store_true", help="не удалять промежуточный wav")
     ap.add_argument("--diarize", action="store_true", help="размечать говорящих (pyannote)")
+    ap.add_argument("--diar-model", default="pyannote/speaker-diarization-community-1",
+                    help="модель диаризации: community-1 (нужен pyannote>=4, по умолчанию) "
+                         "или speaker-diarization-3.1 (для старого pyannote<4)")
     ap.add_argument("--speakers", type=int, default=None, help="точное число говорящих")
     ap.add_argument("--min-speakers", type=int, default=None)
     ap.add_argument("--max-speakers", type=int, default=None)
@@ -472,7 +492,7 @@ def main():
         # границы кладём в json: перерезать сегменты потом можно без пересчёта
         meta["turns"] = [{"start": round(s, 2), "end": round(e, 2), "speaker": sp}
                          for s, e, sp in turns]
-        meta["diarization"] = "pyannote/speaker-diarization-3.1"
+        meta["diarization"] = getattr(diarize, "model_used", args.diar_model)
         if args.no_split or not any(r.get("words") for r in rows):
             if not args.no_split:
                 log("[split] пословных таймкодов нет — ставлю метку на сегмент целиком")

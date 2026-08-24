@@ -78,8 +78,21 @@ cp speakers.example.json speakers.json         # вписать имена
 упирается в саму диаризацию. Короткие реплики разных людей она порой сваливает в один
 кластер, и разрезание такое не лечит.
 
+## Модель диаризации
+
+По умолчанию — `pyannote/speaker-diarization-community-1` (нужен `pyannote.audio>=4`).
+Это gated-модель со статусом `gated: auto`: один раз зайдите на её
+[страницу на HuggingFace](https://huggingface.co/pyannote/speaker-diarization-community-1)
+залогиненным и примите соглашение — после этого токен качает её сам. Токен берётся
+из `HF_TOKEN` или переменной `HUGGING_FACE` в `~/.tokens`.
+
+Старую `speaker-diarization-3.1` можно выбрать флагом `--diar-model
+pyannote/speaker-diarization-3.1`; если в окружении стоит `pyannote.audio<4`,
+скрипт сам откатывается на 3.1 (с заглушками совместимости для свежих torch/torchaudio).
+На практике разница между community-1 и 3.1 на обычной встрече невелика — community-1
+чуть чище отсеивает шумовые микро-кластеры и активнее развивается.
+
 ## Зависимости
 
-ffmpeg, python3. Остальное скрипт ставит сам, версии закреплены не случайно:
-`pyannote.audio<4` (четвёртая ветка требует gated-модель) и `huggingface_hub<1.0`
-(в первой убран аргумент, который зовёт pyannote третьей ветки).
+ffmpeg, python3. Остальное (`faster-whisper`, `pyannote.audio>=4`, torch CPU-сборкой)
+скрипт ставит сам при первом запуске.
