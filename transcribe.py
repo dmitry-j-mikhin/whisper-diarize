@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Локальная транскрипция аудио/видео через faster-whisper (CPU) + опциональная
-разметка говорящих через pyannote.
+Локальная транскрипция аудио/видео через faster-whisper + опциональная разметка
+говорящих через pyannote. Считает на GPU NVIDIA, если стоит драйвер, иначе на CPU.
 
 Пишет рядом с исходником:
   <name>.txt   — читаемый текст с таймкодами (и с говорящими, если --diarize)
@@ -153,6 +153,41 @@ def cached_pipeline_config():
     return next(iter(sorted(root.glob("*/config.yaml"))), None) if root.exists() else None
 
 
+def pick_device(requested: str) -> str:
+    """auto -> cuda, если ctranslate2 видит видеокарту (нужен драйвер NVIDIA), иначе cpu."""
+    if requested == "cpu":
+        return "cpu"
+    import ctranslate2
+    if ctranslate2.get_cuda_device_count() == 0:
+        if requested == "cuda":
+            sys.exit("--device cuda: ctranslate2 не видит GPU — проверь nvidia-smi (драйвер загружен?)")
+        return "cpu"
+    return "cuda"
+
+
+def preload_cuda_libs():
+    """ctranslate2 ищет libcublas.so.12 через dlopen, а в venv она лежит внутри pip-пакета
+    nvidia-cublas-cu12 (приезжает с torch cu12x), куда линковщик не заглядывает. Грузим сами
+    с RTLD_GLOBAL — тогда dlopen по soname найдёт уже загруженную копию."""
+    import ctypes
+    import glob
+    import importlib.util
+    spec = importlib.util.find_spec("nvidia")
+    for base in (spec.submodule_search_locations or []) if spec else []:
+        for name in ("libcublasLt.so.12", "libcublas.so.12"):   # Lt первым: cublas от него зависит
+            for so in glob.glob(f"{base}/cublas/lib/{name}"):
+                ctypes.CDLL(so, mode=ctypes.RTLD_GLOBAL)
+
+
+def gpu_name() -> str:
+    try:
+        out = subprocess.run(["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
+                             capture_output=True, text=True, timeout=5).stdout
+        return out.strip().splitlines()[0]
+    except Exception:
+        return "GPU"
+
+
 def diarize(audio: Path, args):
     """Диаризация -> [(start, end, speaker), …]. По умолчанию community-1 (pyannote 4.x)."""
     import inspect
@@ -184,7 +219,14 @@ def diarize(audio: Path, args):
     if pipe is None:
         raise RuntimeError("pyannote не отдал пайплайн — проверь HF-токен и доступ к модели "
                            "(для community-1 нужно принять соглашение на странице модели)")
-    pipe.to(torch.device("cpu"))
+    dev = getattr(args, "device", "cpu")
+    if dev == "cuda" and not torch.cuda.is_available():
+        log("[diar] torch без CUDA (CPU-сборка?) — диаризация пойдёт на CPU; "
+            "transcribe.sh переставит torch из индекса cu129")
+        dev = "cpu"
+        torch.set_num_threads(os.cpu_count() or 4)   # «GPU-умолчание» в 2 потока тут убьёт скорость
+    pipe.to(torch.device(dev))
+    log(f"[diar] устройство: {dev}" + (f" ({gpu_name()})" if dev == "cuda" else ""))
 
     kw = {}
     if args.speakers:
@@ -398,9 +440,19 @@ def main():
                          "качественнее; ~x1.4 realtime на этом CPU против ~x2.2 у turbo")
     ap.add_argument("-l", "--language", default="ru", help="язык ('auto' — определять)")
     ap.add_argument("-o", "--outdir", type=Path, default=None)
-    ap.add_argument("--compute-type", default="int8", help="int8 | int8_float32 | float32")
-    ap.add_argument("--threads", type=int, default=os.cpu_count() or 4)
+    ap.add_argument("--device", default="auto", choices=["auto", "cuda", "cpu"],
+                    help="auto (по умолчанию): cuda, если есть GPU NVIDIA с драйвером, иначе cpu")
+    ap.add_argument("--compute-type", default=None,
+                    help="int8 | int8_float32 | float32 | float16 | int8_float16. "
+                         "По умолчанию int8 на CPU, float16 на GPU")
+    ap.add_argument("--threads", type=int, default=None,
+                    help="потоков CPU (OpenMP-пул torch и ctranslate2): все ядра на CPU, 1 на GPU "
+                         "(там пул только крутится вхолостую на барьерах и греет ядра)")
     ap.add_argument("--beam-size", type=int, default=5)
+    ap.add_argument("--batch-size", type=int, default=None,
+                    help="батчевый режим faster-whisper: N кусков за проход, 0 — последовательно. "
+                         "По умолчанию 8 на GPU (вдвое быстрее, 16 не влезает в 8 ГБ) и 0 на CPU. "
+                         "Куски режутся по паузам VAD, а не окнами по 30 с, см. README")
     ap.add_argument("--no-vad", action="store_true", help="не выкидывать тишину")
     ap.add_argument("--initial-prompt", default=None,
                     help="подсказка с терминами/именами — улучшает написание жаргона")
@@ -421,6 +473,16 @@ def main():
     ap.add_argument("--diarize-only", action="store_true",
                     help="не транскрибировать заново: взять готовый <name>.json и разметить говорящих")
     args = ap.parse_args()
+    args.device = pick_device(args.device)
+    if args.compute_type is None:
+        args.compute_type = "float16" if args.device == "cuda" else "int8"
+    if args.threads is None:
+        # на GPU CPU-потоки почти не считают: perf показал 96% времени в gomp_barrier_wait —
+        # пул OpenMP спин-ждёт между крошечными операциями. Замер: 1, 2 и 4 потока дают одно
+        # и то же время (ASR 10 мин — 44–45 с, диаризация 56 мин — 161–168 с), 20 — медленнее
+        args.threads = 1 if args.device == "cuda" else (os.cpu_count() or 4)
+    if args.batch_size is None:
+        args.batch_size = 8 if args.device == "cuda" else 0
 
     src = args.input.expanduser().resolve()
     if not src.exists():
@@ -442,15 +504,22 @@ def main():
         rows = meta.pop("segments")
         log(f"[reuse] беру готовые {len(rows)} сегментов из {stem}.json")
     else:
+        if args.device == "cuda":
+            preload_cuda_libs()
+        import ctranslate2
+        # при temperature-fallback whisper сэмплирует случайно; без seed два прогона одной записи
+        # расходятся на 4–6% слов (после первого такого окна сдвигается и вся дальнейшая нарезка)
+        ctranslate2.set_random_seed(0)
         from faster_whisper import WhisperModel
-        log(f"[model] {args.model} / {args.compute_type} / {args.threads} threads")
+        where = f"cuda ({gpu_name()})" if args.device == "cuda" else f"cpu, {args.threads} threads"
+        log(f"[model] {args.model} / {args.compute_type} / {where}"
+            + (f" / batch {args.batch_size}" if args.batch_size else ""))
         t_load = time.time()
-        model = WhisperModel(args.model, device="cpu", compute_type=args.compute_type,
+        model = WhisperModel(args.model, device=args.device, compute_type=args.compute_type,
                              cpu_threads=args.threads)
         log(f"[model] готова за {time.time() - t_load:.0f} c; длительность записи {hhmmss(total)}")
 
-        segments, info = model.transcribe(
-            str(audio),
+        opts = dict(
             language=None if args.language == "auto" else args.language,
             beam_size=args.beam_size,
             vad_filter=not args.no_vad,
@@ -459,6 +528,12 @@ def main():
             initial_prompt=args.initial_prompt,
             word_timestamps=not args.no_words,  # без них не разрезать сегмент по говорящим
         )
+        if args.batch_size:
+            from faster_whisper import BatchedInferencePipeline
+            segments, info = BatchedInferencePipeline(model).transcribe(
+                str(audio), batch_size=args.batch_size, **opts)
+        else:
+            segments, info = model.transcribe(str(audio), **opts)
         log(f"[lang] {info.language} (p={info.language_probability:.2f})")
 
         t0, rows, last = time.time(), [], 0.0
@@ -480,7 +555,8 @@ def main():
                         f"  x{speed:.2f} realtime  ETA {hhmmss(eta)}")
         log(f"[asr] {len(rows)} сегментов за {hhmmss(time.time() - t0)}")
         meta = {"source": str(src), "model": args.model, "language": info.language,
-                "duration": total}
+                "duration": total, "device": args.device, "compute_type": args.compute_type,
+                "batch_size": args.batch_size}
 
     if args.diarize:
         saved = meta.get("turns") if args.reuse_turns else None
