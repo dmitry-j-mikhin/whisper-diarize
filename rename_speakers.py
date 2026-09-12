@@ -3,7 +3,8 @@
 Подставить имена вместо меток SPEAKER_xx в готовой расшифровке.
 
   ./rename_speakers.py запись.json --dump          # шпаргалка: кто сколько говорил
-  ./rename_speakers.py запись.json --map names.json  # применить соответствия
+  ./rename_speakers.py запись.json                 # применить speakers.json из той же папки
+  ./rename_speakers.py запись.json --map names.json  # ...или соответствия из другого файла
 
 names.json — это просто {"SPEAKER_00": "Иван Иванов", "SPEAKER_01": "Пётр Петров"}.
 Метки, которых нет в файле, остаются как есть. Перезаписывает .txt и .srt рядом.
@@ -20,7 +21,9 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("json_file", type=Path)
-    ap.add_argument("--map", type=Path, help="json со словарём метка -> имя")
+    ap.add_argument("--map", type=Path,
+                    help="json со словарём метка -> имя; по умолчанию speakers.json "
+                         "из папки с расшифровкой")
     ap.add_argument("--dump", action="store_true", help="показать статистику по говорящим")
     args = ap.parse_args()
 
@@ -41,10 +44,12 @@ def main():
                   f"{words[sp]:>7}   [{T.hhmmss(first[sp])}]")
         return
 
-    if not args.map:
-        ap.error("нужен --map или --dump")
+    names_file = args.map or args.json_file.parent / "speakers.json"
+    if not names_file.exists():
+        ap.error(f"нет файла с именами ({names_file}); сделайте его по образцу "
+                 f"speakers.example.json или запустите с --dump")
 
-    names = json.loads(args.map.read_text(encoding="utf-8"))
+    names = json.loads(names_file.read_text(encoding="utf-8"))
     hits = collections.Counter()
     for r in rows:
         sp = r.get("speaker")

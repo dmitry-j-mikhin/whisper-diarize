@@ -6,7 +6,7 @@
 #   ./transcribe.sh "запись.webm" --asr whisper         # whisper large-v3 (медленнее, но любой язык)
 #   ./transcribe.sh "запись.webm" --diarize-only --diarize   # доразметить готовый .json
 #
-# Результаты: <имя>.txt / .srt / .json рядом с исходником, лог — <имя>.log.
+# Результаты: records/<имя записи>/<имя>.txt / .srt / .json, лог — там же <имя>.log.
 # GPU NVIDIA (если стоит драйвер, см. nvidia-smi) подхватывается сам: сюда ставятся
 # CUDA-сборки, transcribe.py выбирает устройство через --device auto.
 set -euo pipefail
@@ -77,6 +77,31 @@ if [[ $GIGAAM == 1 ]]; then
 fi
 
 src="$1"; shift
-log="${src%.*}.log"
+stem="$(basename "${src%.*}")"
+
+# всё про одну запись живёт в records/<имя записи>/: исходник, txt/srt/json, лог,
+# speakers.json, страницы сравнения. Записи из корня проекта забираем внутрь, чужие
+# (из ~/Видео и прочего) не трогаем — туда только не пишем, результат всё равно в records/
+parent="$(dirname "$(readlink -f "$src")")"
+if [[ "$parent" == "$PWD/records/"* ]]; then
+  dir="$parent"
+else
+  dir="$PWD/records/$stem"
+  mkdir -p "$dir"
+  if [[ "$parent" == "$PWD" ]]; then
+    mv -n "$src" "$dir/"
+    src="$dir/$(basename "$src")"
+    echo "[setup] запись перенесена в records/$stem/" >&2
+  fi
+fi
+# свой -o уважаем: тогда и лог кладём рядом с ним
+outdir="$dir"; own_o=(-o "$dir")
+for ((i = 1; i <= $#; i++)); do
+  case "${!i}" in
+    -o|--outdir) j=$((i + 1)); outdir="${!j}"; own_o=(); break ;;
+  esac
+done
+log="$outdir/$stem.log"
+mkdir -p "$outdir"
 echo "[run] лог: $log  (следить: tail -f \"$log\")" >&2
-"$VENV/bin/python" transcribe.py "$src" "$@" 2> >(tee -a "$log" >&2)
+"$VENV/bin/python" transcribe.py "$src" "${own_o[@]}" "$@" 2> >(tee -a "$log" >&2)
