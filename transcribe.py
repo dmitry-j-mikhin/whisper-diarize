@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
-Локальная транскрипция аудио/видео через faster-whisper + опциональная разметка
-говорящих через pyannote. Считает на GPU NVIDIA, если стоит драйвер, иначе на CPU.
+Локальная транскрипция аудио/видео через faster-whisper (или GigaAM, --asr gigaam)
++ опциональная разметка говорящих через pyannote. Считает на GPU NVIDIA, если стоит
+драйвер, иначе на CPU.
 
 Пишет рядом с исходником:
   <name>.txt   — читаемый текст с таймкодами (и с говорящими, если --diarize)
@@ -20,6 +21,9 @@ import time
 from pathlib import Path
 
 AUDIO_EXT = {".wav", ".mp3", ".m4a", ".ogg", ".opus", ".flac"}
+# имена моделей GigaAM: v1_ctc, v2_rnnt, v3_e2e_rnnt, multilingual_large_ctc, emo
+# и короткие ctc/rnnt/e2e_ctc/e2e_rnnt (они же v3_*). Всё остальное в -m — про whisper
+GIGAAM_MODEL = re.compile(r"^(v[123]_|multilingual_|emo$|ctc$|rnnt$|e2e_)")
 
 
 def log(msg):
@@ -393,6 +397,102 @@ def split_by_speaker(rows, turns, min_words=2, min_dur=0.4):
     return out
 
 
+# --------------------------------------------------------------------- gigaam
+
+def gigaam_chunks(audio: Path, device: str, max_dur=22.0, min_dur=15.0, hard_dur=30.0):
+    """Режет запись по речи на куски не длиннее 30 с: больше GigaAM за раз не берёт.
+
+    Логика та же, что в gigaam.vad_utils.segment_audio_file, но waveform подаётся
+    pyannote из памяти: её встроенное декодирование идёт через torchcodec, который
+    тут не грузится (см. load_waveform).
+    """
+    import torch
+    from gigaam.vad_utils import get_pipeline
+
+    wav, sr = load_waveform(audio)
+    log("[vad] ищу речь (pyannote/segmentation-3.0)")
+    speech = get_pipeline(torch.device(device))({"waveform": wav, "sample_rate": sr})
+    mono, total = wav[0], wav.shape[-1] / sr
+    chunks = []
+
+    def cut(start, end):
+        n = int((end - start) / hard_dur) + 1      # длинное непрерывное говорение делим поровну
+        step = (end - start) / n
+        for i in range(n):
+            chunks.append((start + i * step, start + (i + 1) * step))
+
+    start = end = dur = 0.0
+    for seg in speech.get_timeline().support():
+        s, e = max(0.0, seg.start), min(total, seg.end)
+        if dur == 0.0:
+            start = s
+        elif dur > 0.2 and (dur + (e - end) > max_dur or dur > min_dur):
+            cut(start, end)
+            start = s
+        end, dur = e, e - start
+    if dur > 0.2:
+        cut(start, end)
+
+    speech_min = sum(e - s for s, e in chunks) / 60
+    log(f"[vad] {len(chunks)} кусков, речи {speech_min:.0f} мин из {total / 60:.0f}")
+    return [(s, e, mono[int(s * sr):int(e * sr)]) for s, e in chunks]
+
+
+def transcribe_gigaam(audio: Path, args, total: float, outdir: Path, stem: str):
+    """Распознавание через GigaAM. Сегменты той же формы, что и в whisper-ветке."""
+    import torch
+    import gigaam
+    from gigaam.utils import AudioDataset
+    from torch.utils.data import DataLoader
+
+    token = hf_token()                 # VAD тянет gated pyannote/segmentation-3.0
+    if token:
+        os.environ.setdefault("HF_TOKEN", token)
+    torch.set_num_threads(args.threads)
+
+    where = f"cuda ({gpu_name()})" if args.device == "cuda" else f"cpu, {args.threads} threads"
+    log(f"[model] gigaam {args.model} / {where} / batch {args.batch_size}")
+    t_load = time.time()
+    model = gigaam.load_model(args.model, device=args.device,
+                              fp16_encoder=args.compute_type != "float32")
+    log(f"[model] готова за {time.time() - t_load:.0f} c; длительность записи {hhmmss(total)}")
+
+    chunks = gigaam_chunks(audio, args.device)
+    loader = DataLoader(AudioDataset([c[2] for c in chunks], tokenizer=None),
+                        batch_size=args.batch_size, shuffle=False,
+                        collate_fn=AudioDataset.collate)
+
+    dtype = next(model.parameters()).dtype
+    rows, t0, done, last = [], time.time(), 0, 0.0
+    with torch.inference_mode(), open(outdir / f"{stem}.txt", "w", encoding="utf-8") as draft:
+        for wav_pad, wav_lens in loader:
+            encoded, encoded_len = model.forward(wav_pad.to(args.device).to(dtype),
+                                                 wav_lens.to(args.device))
+            # приватный _decode — то же, что делает model.transcribe_longform, но нам нужен
+            # свой цикл: прогресс в лог и черновик txt по ходу дела
+            for text, words in model._decode(encoded, encoded_len, wav_lens, not args.no_words):
+                start, end, _ = chunks[done]
+                done += 1
+                rows.append({"id": done, "start": round(start, 2), "end": round(end, 2),
+                             "text": text.strip(),
+                             "words": [{"start": round(start + w.start, 2),
+                                        "end": round(start + w.end, 2),
+                                        "word": " " + w.text} for w in (words or [])]})
+                draft.write(f"[{hhmmss(start)}] {text.strip()}\n")
+            draft.flush()
+            if rows[-1]["end"] - last >= 60:
+                last = rows[-1]["end"]
+                spent = time.time() - t0
+                speed = last / spent if spent else 0
+                log(f"  {hhmmss(last)} / {hhmmss(total)} ({100 * last / total:4.1f}%)"
+                    f"  x{speed:.1f} realtime  ETA {hhmmss((total - last) / speed if speed else 0)}")
+    log(f"[asr] {len(rows)} сегментов за {hhmmss(time.time() - t0)}")
+    return rows, {"source": str(audio), "asr": "gigaam", "model": args.model,
+                  "language": "ru", "duration": total, "device": args.device,
+                  "compute_type": "float16" if dtype == torch.float16 else "float32",
+                  "batch_size": args.batch_size}
+
+
 # ------------------------------------------------------------------- вывод
 
 def write_outputs(rows, outdir: Path, stem: str, meta: dict):
@@ -435,9 +535,15 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("input", type=Path, help="видео или аудио файл")
-    ap.add_argument("-m", "--model", default="large-v3",
-                    help="small|medium|large-v3|large-v3-turbo. По умолчанию large-v3 — "
-                         "качественнее; ~x1.4 realtime на этом CPU против ~x2.2 у turbo")
+    ap.add_argument("--asr", default=None, choices=["whisper", "gigaam"],
+                    help="движок распознавания. По умолчанию GigaAM (вдесятеро быстрее), "
+                         "но он только про русский: если просят другой язык, whisper-модель "
+                         "или --initial-prompt, скрипт сам берёт faster-whisper")
+    ap.add_argument("-m", "--model", default=None,
+                    help="gigaam: v3_e2e_rnnt (по умолчанию, с пунктуацией)|v3_rnnt|v3_ctc|"
+                         "multilingual_large_ctc. "
+                         "whisper: small|medium|large-v3 (по умолчанию)|large-v3-turbo — "
+                         "turbo ~x2.2 realtime на этом CPU против ~x1.4 у large-v3")
     ap.add_argument("-l", "--language", default="ru", help="язык ('auto' — определять)")
     ap.add_argument("-o", "--outdir", type=Path, default=None)
     ap.add_argument("--device", default="auto", choices=["auto", "cuda", "cpu"],
@@ -473,6 +579,18 @@ def main():
     ap.add_argument("--diarize-only", action="store_true",
                     help="не транскрибировать заново: взять готовый <name>.json и разметить говорящих")
     args = ap.parse_args()
+    if args.asr is None:
+        args.asr, why = "gigaam", None
+        if args.model and not GIGAAM_MODEL.match(args.model):
+            args.asr, why = "whisper", f"модель {args.model} — whisper-овская"
+        elif args.language != "ru":
+            args.asr, why = "whisper", f"GigaAM понимает только русский, а тут -l {args.language}"
+        elif args.initial_prompt:
+            args.asr, why = "whisper", "подсказки терминами (--initial-prompt) у GigaAM нет"
+        if why:
+            log(f"[asr] беру whisper вместо GigaAM: {why}")
+    if args.model is None:
+        args.model = "v3_e2e_rnnt" if args.asr == "gigaam" else "large-v3"
     args.device = pick_device(args.device)
     if args.compute_type is None:
         args.compute_type = "float16" if args.device == "cuda" else "int8"
@@ -483,6 +601,17 @@ def main():
         args.threads = 1 if args.device == "cuda" else (os.cpu_count() or 4)
     if args.batch_size is None:
         args.batch_size = 8 if args.device == "cuda" else 0
+    if args.asr == "gigaam":
+        # у GigaAM батч только ускоряет: на 16 кусках пик видеопамяти всего 1,5 ГБ
+        args.batch_size = max(1, args.batch_size, 16 if args.device == "cuda" else 1)
+        ignored = [name for name, val in (("--beam-size", args.beam_size != 5),
+                                          ("--initial-prompt", args.initial_prompt),
+                                          ("--no-vad", args.no_vad),
+                                          ("-l/--language", args.language != "ru")) if val]
+        # сюда попадают только те, кто попросил --asr gigaam явно: без него эти же
+        # флаги выше переключают на whisper
+        if ignored:
+            log(f"[gigaam] не применимо к этому движку, игнорирую: {', '.join(ignored)}")
 
     src = args.input.expanduser().resolve()
     if not src.exists():
@@ -503,6 +632,9 @@ def main():
         meta = json.loads((outdir / f"{stem}.json").read_text(encoding="utf-8"))
         rows = meta.pop("segments")
         log(f"[reuse] беру готовые {len(rows)} сегментов из {stem}.json")
+    elif args.asr == "gigaam":
+        rows, meta = transcribe_gigaam(audio, args, total, outdir, stem)
+        meta["source"] = str(src)
     else:
         if args.device == "cuda":
             preload_cuda_libs()

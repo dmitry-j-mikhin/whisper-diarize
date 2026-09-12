@@ -20,6 +20,7 @@ __pycache__/
 *.srt
 *.json
 *.log
+*.html
 *.md
 backup-*/
 
