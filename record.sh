@@ -207,6 +207,9 @@ CAP_THEM=meetcap_them
 # писала вкладку мессенджера вместо звонка.
 # Поток — по media.name: его Firefox берёт из заголовка вкладки, так что «--stream» выбирает
 # одну вкладку, а «--app» — все потоки приложения разом.
+# У приложения берём только потоки вывода (Stream/Output/Audio): у потока захвата микрофона
+# тоже есть выходной порт monitor_* — копия микрофона, и 24.09 так в дорожку «они» попал
+# свой голос (корреляция с дорожкой «я» 0,95).
 ports_of() {   # exact <имя узла> | app <кусок имени, без учёта регистра> | stream <кусок имени потока>
   pw-dump 2>/dev/null | jq -r --arg how "$1" --arg want "${2%.monitor}" '
     (map(select(.type == "PipeWire:Interface:Node"))
@@ -217,7 +220,8 @@ ports_of() {   # exact <имя узла> | app <кусок имени, без у
         | {node: .["node.id"], id: .["object.id"], ch: (.["port.id"] | tonumber),
            name: ($n["node.name"] // ""), stream: ($n["media.name"] // ""), class: ($n["media.class"] // "")} ]
     | map(select(if $how == "app"
-                 then (.name | ascii_downcase | contains($want | ascii_downcase))
+                 then .class == "Stream/Output/Audio"
+                      and (.name | ascii_downcase | contains($want | ascii_downcase))
                       and (.name | startswith("meetcap_") | not)
                  elif $how == "stream"
                  then .class == "Stream/Output/Audio" and (.stream | contains($want))
