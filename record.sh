@@ -4,6 +4,8 @@
 #   ./record.sh                      # пишем до Ctrl+C, имя записи — дата и время
 #   ./record.sh "планёрка"           # своё имя
 #   ./record.sh --app firefox        # «они» — потоки Firefox вместо всего выхода (на встречах не проверено)
+#   ./record.sh --stream "Звонок в Яндекс Телемосте"   # «они» — только поток с таким именем:
+#                                    # Firefox зовёт потоки по заголовку вкладки (на встречах не проверено)
 #   ./record.sh --list               # какие есть микрофоны и выходы
 #
 # Управление из панели (waybar) и вообще не из терминала:
@@ -66,25 +68,28 @@ stop_recording() {
   return 0
 }
 
-name=""; APP=""; MIC=""; SINK=""; MIX=1; list=0; mode=""
+name=""; APP=""; STREAM=""; MIC=""; SINK=""; MIX=1; list=0; mode=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --list) list=1; shift ;;
     --app)  APP="${2:?чей звук писать, например --app firefox}"; shift 2 ;;
+    --stream) STREAM="${2:?имя потока, например --stream «Звонок в Яндекс Телемосте»}"; shift 2 ;;
     --mic)  MIC="${2:?имя источника, см. --list}"; shift 2 ;;
     --sink) SINK="${2:?имя выхода, см. --list}"; shift 2 ;;
     --no-mix) MIX=0; shift ;;
     --toggle|--stop|--status|--auto) mode="${1#--}"; shift ;;
-    -h|--help) sed -n '2,14p' "$0" | sed 's/^# \?//'; exit 0 ;;
+    -h|--help) sed -n '2,16p' "$0" | sed 's/^# \?//'; exit 0 ;;
     -*) echo "не знаю опцию $1 (см. --help)" >&2; exit 1 ;;
     *)  name="$1"; shift ;;
   esac
 done
+[[ -n "$APP" && -n "$STREAM" ]] && { echo "--app и --stream — что-то одно" >&2; exit 1; }
 
 # запускаем себя же в фоне, отвязав от терминала и от того, кто нас позвал (панель, сторож)
 start_bg() {   # [пояснение в уведомление о старте]
   local args=()
   [[ -n "$APP"  ]] && args+=(--app  "$APP")
+  [[ -n "$STREAM" ]] && args+=(--stream "$STREAM")
   [[ -n "$MIC"  ]] && args+=(--mic  "$MIC")
   [[ -n "$SINK" ]] && args+=(--sink "$SINK")
   [[ $MIX == 0  ]] && args+=(--no-mix)
@@ -200,17 +205,22 @@ CAP_THEM=meetcap_them
 # Цепляем по id, а не по имени «узел:порт»: имена узлов не уникальны. У Firefox каждый
 # поток зовётся «Firefox», и pw-link по имени брал первый попавшийся — 24.09 дорожка «они»
 # писала вкладку мессенджера вместо звонка.
-ports_of() {   # exact <имя узла> | app <кусок имени, без учёта регистра>
+# Поток — по media.name: его Firefox берёт из заголовка вкладки, так что «--stream» выбирает
+# одну вкладку, а «--app» — все потоки приложения разом.
+ports_of() {   # exact <имя узла> | app <кусок имени, без учёта регистра> | stream <кусок имени потока>
   pw-dump 2>/dev/null | jq -r --arg how "$1" --arg want "${2%.monitor}" '
     (map(select(.type == "PipeWire:Interface:Node"))
-      | map({key: (.id | tostring), value: (.info.props["node.name"] // "")}) | from_entries) as $name
+      | map({key: (.id | tostring), value: (.info.props // {})}) | from_entries) as $node
     | [ .[] | select(.type == "PipeWire:Interface:Port" and .info.direction == "output")
         | .info.props | select((.["format.dsp"] // "") | test("audio"))
+        | $node[.["node.id"] | tostring] as $n
         | {node: .["node.id"], id: .["object.id"], ch: (.["port.id"] | tonumber),
-           name: $name[.["node.id"] | tostring]} ]
+           name: ($n["node.name"] // ""), stream: ($n["media.name"] // ""), class: ($n["media.class"] // "")} ]
     | map(select(if $how == "app"
                  then (.name | ascii_downcase | contains($want | ascii_downcase))
                       and (.name | startswith("meetcap_") | not)
+                 elif $how == "stream"
+                 then .class == "Stream/Output/Audio" and (.stream | contains($want))
                  else .name == $want end))
     | group_by(.node)[] | sort_by(.ch) | map(.id | tostring) | join(" ")' 2>/dev/null || true
 }
@@ -225,7 +235,7 @@ link_pair() {   # <id портов через пробел> <приёмник>
   pw-link "${p[$second]}" "$2:input_FR" 2>/dev/null || true
 }
 
-link_all() {   # <приёмник> exact|app <имя> — каждый подходящий узел своей парой
+link_all() {   # <приёмник> exact|app|stream <имя> — каждый подходящий узел своей парой
   local ports rc=1
   while read -r ports; do link_pair "$ports" "$1" && rc=0; done < <(ports_of "$2" "$3")
   return $rc
@@ -233,7 +243,8 @@ link_all() {   # <приёмник> exact|app <имя> — каждый подх
 
 relink() {
   link_all "$CAP_MIC" exact "$MIC" || return 1
-  if [[ -n "$APP" ]]; then link_all "$CAP_THEM" app "$APP"
+  if   [[ -n "$APP"    ]]; then link_all "$CAP_THEM" app "$APP"
+  elif [[ -n "$STREAM" ]]; then link_all "$CAP_THEM" stream "$STREAM"
   else link_all "$CAP_THEM" exact "$SINK"; fi
 }
 
@@ -250,7 +261,9 @@ cleanup() {
 trap cleanup EXIT
 
 echo "[rec] я   <- $MIC"
-echo "[rec] они <- ${APP:+звук приложения }${APP:-$SINK}"
+if   [[ -n "$APP"    ]]; then echo "[rec] они <- звук приложения $APP"
+elif [[ -n "$STREAM" ]]; then echo "[rec] они <- поток «$STREAM»"
+else echo "[rec] они <- $SINK"; fi
 echo "[rec] пишу в records/$name/ , стоп — Ctrl+C"
 notify "Запись встречи" "Пишу: $name${MEETREC_WHY:+ — $MEETREC_WHY}" 2500
 bar_refresh
@@ -288,8 +301,8 @@ kill -0 $PW_MIC 2>/dev/null && kill -0 $PW_THEM 2>/dev/null || {
   exit 1
 }
 relink || echo "[!] не вижу портов микрофона «$MIC» — проверь ./record.sh --list" >&2
-if [[ -n "$APP" ]] && ! pw-link -l 2>/dev/null | grep -q "$CAP_THEM:input_FL"; then
-  echo "[!] «$APP» сейчас молчит: подключится само, как только пойдёт звук." >&2
+if [[ -n "$APP$STREAM" ]] && ! pw-link -l 2>/dev/null | grep -q "$CAP_THEM:input_FL"; then
+  echo "[!] «$APP$STREAM» сейчас молчит: подключится само, как только пойдёт звук." >&2
 fi
 # поток приложения пересоздаётся при перезаходе в конференцию и смене устройства
 ( while :; do relink >/dev/null 2>&1 || true; sleep 2; done ) & WATCH=$!
