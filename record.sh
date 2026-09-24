@@ -10,6 +10,7 @@
 #   ./record.sh --toggle [опции]     # не пишем — запустить в фоне, пишем — остановить
 #   ./record.sh --stop               # остановить фоновую запись
 #   ./record.sh --status             # «recording <секунд> <имя>» или «idle» (код 1)
+#   ./record.sh --auto [опции]       # сторож: вошёл в звонок Телемоста — пишем, вышел — стоп
 #
 # Результат — records/<имя записи>/:
 #   <имя>.mic.flac    свой голос, сырой (без эхоподавления и шумодава — их браузер делает у себя)
@@ -73,14 +74,74 @@ while [[ $# -gt 0 ]]; do
     --mic)  MIC="${2:?имя источника, см. --list}"; shift 2 ;;
     --sink) SINK="${2:?имя выхода, см. --list}"; shift 2 ;;
     --no-mix) MIX=0; shift ;;
-    --toggle|--stop|--status) mode="${1#--}"; shift ;;
-    -h|--help) sed -n '2,13p' "$0" | sed 's/^# \?//'; exit 0 ;;
+    --toggle|--stop|--status|--auto) mode="${1#--}"; shift ;;
+    -h|--help) sed -n '2,14p' "$0" | sed 's/^# \?//'; exit 0 ;;
     -*) echo "не знаю опцию $1 (см. --help)" >&2; exit 1 ;;
     *)  name="$1"; shift ;;
   esac
 done
 
+# запускаем себя же в фоне, отвязав от терминала и от того, кто нас позвал (панель, сторож)
+start_bg() {   # [пояснение в уведомление о старте]
+  local args=()
+  [[ -n "$APP"  ]] && args+=(--app  "$APP")
+  [[ -n "$MIC"  ]] && args+=(--mic  "$MIC")
+  [[ -n "$SINK" ]] && args+=(--sink "$SINK")
+  [[ $MIX == 0  ]] && args+=(--no-mix)
+  [[ -n "$name" ]] && args+=("$name")
+  MEETREC_NOTIFY=1 MEETREC_WHY="${1:-}" \
+    setsid "$(readlink -f "$0")" "${args[@]}" >"$LOG" 2>&1 </dev/null 8>&- 9>&- &
+  for _ in $(seq 50); do is_recording && break; sleep 0.1; done
+  is_recording || { echo "не удалось запустить, лог: $LOG" >&2; return 1; }
+  bar_refresh; echo "пишу: $(val dir)"
+}
+
+# Сторож звонков (--auto). Firefox называет аудиопотоки по заголовку вкладки, а Телемост
+# на время звонка ставит заголовок «Звонок в Яндекс Телемосте» — уже на экране проверки
+# перед входом. Звонок идёт, пока такой поток есть хоть в одну сторону: воспроизведение
+# живо весь звонок, даже если микрофон выключен. После выхода страница и вкладка с чатами
+# зовутся просто «Яндекс Телемост» — это не звонок.
+CALL_MATCH="${MEETREC_CALL:-Звонок в Яндекс Телемосте}"
+in_call() {
+  # через переменную, а не grep -q: при pipefail ранний выход grep роняет pactl
+  # в SIGPIPE, и найденный звонок читался бы как «нет звонка»
+  local s; s="$({ pactl list sink-inputs; pactl list source-outputs; } 2>/dev/null)" || true
+  [[ $s == *"$CALL_MATCH"* ]]
+}
+
+watch_calls() {
+  # Потоки пропадают и на пару секунд при переходе с экрана проверки во встречу —
+  # звонок считаем законченным, только если его не видно grace секунд подряд.
+  local grace="${MEETREC_GRACE:-10}" call=0 ours=0 lost=""
+  echo "[auto] жду звонков: поток «$CALL_MATCH»"
+  while :; do
+    if in_call; then
+      lost=""
+      if (( ! call )); then
+        call=1; ours=0
+        echo "[auto] $(date +%T) звонок начался"
+        if is_recording; then echo "[auto] запись уже идёт: $(val dir)"
+        else start_bg "по звонку, остановится сама" || true; fi
+      fi
+      # запись, шедшая во время звонка, — наша, даже если начата руками: её и остановим.
+      # Остановленную руками посреди звонка заново не начинаем — старт только на входе.
+      is_recording && ours=1
+    elif (( call )); then
+      lost="${lost:-$SECONDS}"
+      if (( SECONDS - lost >= grace )); then
+        call=0; lost=""
+        echo "[auto] $(date +%T) звонок кончился"
+        if (( ours )) && is_recording; then stop_recording || true; fi
+      fi
+    fi
+    sleep 2
+  done
+}
+
 case "$mode" in
+  auto)
+    [[ -z "$name" ]] || { echo "у --auto имя не задаётся: записи называются по времени" >&2; exit 1; }
+    watch_calls ;;
   status)
     if is_recording; then
       echo "recording $(( $(date +%s) - $(val started) )) $(val name)"; exit 0
@@ -89,17 +150,7 @@ case "$mode" in
   stop) stop_recording; exit $? ;;
   toggle)
     if is_recording; then stop_recording; exit $?; fi
-    # запускаем себя же в фоне, отвязав от терминала и от панели, которая нас позвала
-    args=()
-    [[ -n "$APP"  ]] && args+=(--app  "$APP")
-    [[ -n "$MIC"  ]] && args+=(--mic  "$MIC")
-    [[ -n "$SINK" ]] && args+=(--sink "$SINK")
-    [[ $MIX == 0  ]] && args+=(--no-mix)
-    [[ -n "$name" ]] && args+=("$name")
-    MEETREC_NOTIFY=1 setsid "$(readlink -f "$0")" "${args[@]}" >"$LOG" 2>&1 </dev/null 8>&- 9>&- &
-    for _ in $(seq 50); do is_recording && break; sleep 0.1; done
-    is_recording || { echo "не удалось запустить, лог: $LOG" >&2; exit 1; }
-    bar_refresh; echo "пишу: $(val dir)"; exit 0 ;;
+    start_bg; exit $? ;;
 esac
 
 descr() { pactl list "$1" | awk -v n="$2" '
@@ -185,7 +236,7 @@ trap cleanup EXIT
 echo "[rec] я   <- $MIC"
 echo "[rec] они <- ${APP:+звук приложения }${APP:-$SINK}"
 echo "[rec] пишу в records/$name/ , стоп — Ctrl+C"
-notify "Запись встречи" "Пишу: $name" 2500
+notify "Запись встречи" "Пишу: $name${MEETREC_WHY:+ — $MEETREC_WHY}" 2500
 bar_refresh
 
 # Дорожка = свой ffmpeg (сводит пару каналов в моно и жмёт в flac) + свой pw-record.
