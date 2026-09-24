@@ -20,7 +20,6 @@ import sys
 import time
 from pathlib import Path
 
-AUDIO_EXT = {".wav", ".mp3", ".m4a", ".ogg", ".opus", ".flac"}
 # имена моделей GigaAM: v1_ctc, v2_rnnt, v3_e2e_rnnt, multilingual_large_ctc, emo
 # и короткие ctc/rnnt/e2e_ctc/e2e_rnnt (они же v3_*). Всё остальное в -m — про whisper
 GIGAAM_MODEL = re.compile(r"^(v[123]_|multilingual_|emo$|ctc$|rnnt$|e2e_)")
@@ -42,8 +41,22 @@ def probe_duration(path: Path) -> float:
         return 0.0
 
 
+def is_ready_wav(path: Path) -> bool:
+    """Уже 16 kHz mono PCM-16? Тогда ffmpeg не нужен.
+
+    Проверяем содержимое, а не расширение: .flac и .mp3 с записи — тоже «аудио»,
+    но load_waveform читает только wav, а pyannote ждёт 16 кГц моно.
+    """
+    import wave
+    try:
+        with wave.open(str(path), "rb") as w:
+            return (w.getnchannels(), w.getsampwidth(), w.getframerate()) == (1, 2, 16000)
+    except Exception:
+        return False
+
+
 def extract_audio(src: Path, dst: Path) -> Path:
-    """Любой контейнер (webm/mp4/mkv…) -> 16 kHz mono wav, как ждут whisper и pyannote."""
+    """Любой контейнер (webm/mp4/mkv…) и любое аудио -> 16 kHz mono wav."""
     if dst.exists() and dst.stat().st_mtime >= src.stat().st_mtime:
         log(f"[audio] уже есть: {dst.name}")
         return dst
@@ -620,11 +633,15 @@ def main():
     outdir.mkdir(parents=True, exist_ok=True)
     stem = src.stem
 
-    # аудио: либо исходник уже аудио, либо тянем дорожку ffmpeg-ом
-    if src.suffix.lower() in AUDIO_EXT:
+    # аудио: либо исходник уже в нужном формате, либо перегоняем ffmpeg-ом
+    if is_ready_wav(src):
         audio, drop_audio = src, False
     else:
-        audio = extract_audio(src, outdir / f"{stem}.wav")
+        # .wav не в том формате: писать ffmpeg-ом в себя же нельзя, берём соседнее имя
+        dst = outdir / f"{stem}.wav"
+        if dst.resolve() == src.resolve():
+            dst = outdir / f"{stem}.16k.wav"
+        audio = extract_audio(src, dst)
         drop_audio = not args.keep_audio
     total = probe_duration(audio)
 
