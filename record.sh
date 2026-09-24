@@ -3,7 +3,7 @@
 #
 #   ./record.sh                      # пишем до Ctrl+C, имя записи — дата и время
 #   ./record.sh "планёрка"           # своё имя
-#   ./record.sh --app firefox        # «они» — только звук Firefox, без уведомлений и музыки
+#   ./record.sh --app firefox        # «они» — потоки Firefox вместо всего выхода (на встречах не проверено)
 #   ./record.sh --list               # какие есть микрофоны и выходы
 #
 # Управление из панели (waybar) и вообще не из терминала:
@@ -31,8 +31,8 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-for t in ffmpeg pactl pw-record pw-link; do
-  command -v $t >/dev/null || { echo "нужен $t (dnf install ffmpeg pulseaudio-utils pipewire-utils)" >&2; exit 1; }
+for t in ffmpeg pactl pw-record pw-link pw-dump jq; do
+  command -v $t >/dev/null || { echo "нужен $t (dnf install ffmpeg pulseaudio-utils pipewire-utils jq)" >&2; exit 1; }
 done
 
 # Кто сейчас пишет — в файле состояния: его читает и индикатор в панели.
@@ -194,31 +194,47 @@ exec 8>&-
 CAP_MIC=meetcap_mic    # имена наших узлов-приёмников: по одному на дорожку
 CAP_THEM=meetcap_them
 
-# Выходные порты узла: у микрофона capture_*, у потока приложения output_*, у выхода
-# monitor_* — в pactl он зовётся «<выход>.monitor», но узел в PipeWire тот же, без суффикса.
-ports_of() { pw-link -o 2>/dev/null | awk -v n="${1%.monitor}:" 'index($0, n)==1' | sort; }
+# Выходные аудиопорты узлов — строка на узел, id портов по порядку каналов (FL, FR, …).
+# У микрофона это capture_*, у потока приложения output_*, у выхода monitor_* — в pactl
+# он зовётся «<выход>.monitor», но узел в PipeWire тот же, без суффикса.
+# Цепляем по id, а не по имени «узел:порт»: имена узлов не уникальны. У Firefox каждый
+# поток зовётся «Firefox», и pw-link по имени брал первый попавшийся — 24.09 дорожка «они»
+# писала вкладку мессенджера вместо звонка.
+ports_of() {   # exact <имя узла> | app <кусок имени, без учёта регистра>
+  pw-dump 2>/dev/null | jq -r --arg how "$1" --arg want "${2%.monitor}" '
+    (map(select(.type == "PipeWire:Interface:Node"))
+      | map({key: (.id | tostring), value: (.info.props["node.name"] // "")}) | from_entries) as $name
+    | [ .[] | select(.type == "PipeWire:Interface:Port" and .info.direction == "output")
+        | .info.props | select((.["format.dsp"] // "") | test("audio"))
+        | {node: .["node.id"], id: .["object.id"], ch: (.["port.id"] | tonumber),
+           name: $name[.["node.id"] | tostring]} ]
+    | map(select(if $how == "app"
+                 then (.name | ascii_downcase | contains($want | ascii_downcase))
+                      and (.name | startswith("meetcap_") | not)
+                 else .name == $want end))
+    | group_by(.node)[] | sort_by(.ch) | map(.id | tostring) | join(" ")' 2>/dev/null || true
+}
 
-# Порты источника на оба входа приёмника. Моно-источник кладём в оба канала,
+# Порты узла на оба входа приёмника. Моно-источник кладём в оба канала,
 # чтобы после сведения в моно уровень остался прежним.
-link_pair() {
-  local -a p; mapfile -t p < <(printf '%s' "$1" | grep -v '^$')
+link_pair() {   # <id портов через пробел> <приёмник>
+  local -a p; read -ra p <<< "$1"
   ((${#p[@]})) || return 1
   local second=0; ((${#p[@]} > 1)) && second=1
   pw-link "${p[0]}"       "$2:input_FL" 2>/dev/null || true
   pw-link "${p[$second]}" "$2:input_FR" 2>/dev/null || true
 }
 
+link_all() {   # <приёмник> exact|app <имя> — каждый подходящий узел своей парой
+  local ports rc=1
+  while read -r ports; do link_pair "$ports" "$1" && rc=0; done < <(ports_of "$2" "$3")
+  return $rc
+}
+
 relink() {
-  link_pair "$(ports_of "$MIC")" "$CAP_MIC" || return 1
-  if [[ -n "$APP" ]]; then
-    local n rc=1
-    while read -r n; do
-      [[ "$n" == meetcap_* ]] && continue
-      link_pair "$(ports_of "$n")" "$CAP_THEM" && rc=0
-    done < <(pw-link -o 2>/dev/null | sed 's/:[^:]*$//' | sort -u | grep -i -- "$APP" || true)
-    return $rc
-  fi
-  link_pair "$(ports_of "$SINK")" "$CAP_THEM"
+  link_all "$CAP_MIC" exact "$MIC" || return 1
+  if [[ -n "$APP" ]]; then link_all "$CAP_THEM" app "$APP"
+  else link_all "$CAP_THEM" exact "$SINK"; fi
 }
 
 # ---- запись ---------------------------------------------------------------------------
