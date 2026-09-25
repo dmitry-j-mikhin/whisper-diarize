@@ -58,6 +58,23 @@ notify() {   # уведомления только у фоновой запис�
 }
 bar_refresh() { pkill -RTMIN+11 waybar 2>/dev/null || true; }   # перерисовать индикатор
 
+# «Не беспокоить» на время записи: dunst на паузе копит уведомления и покажет их после.
+# Пауза прячет в очередь и то, что уже на экране (dunst 1.12, проверено), — поэтому
+# у фоновой записи она встаёт, когда своё «Пишу» отгорело: иначе оно вылезло бы снова
+# после встречи. Возвращаем уровень паузы, какой был: стояла пауза руками — останется.
+DND_WAS=""; DND_JOB=""
+dnd_on() {   # [через сколько секунд]
+  command -v dunstctl >/dev/null || return 0
+  DND_WAS="$(dunstctl get-pause-level 2>/dev/null)" || { DND_WAS=""; return 0; }
+  ( sleep "${1:-0}"; dunstctl set-paused true >/dev/null 2>&1 ) & DND_JOB=$!
+}
+dnd_off() {   # повторный вызов ничего не делает
+  [[ -n "$DND_WAS" ]] || return 0
+  wait "$DND_JOB" 2>/dev/null || true   # пауза ещё не встала — дождаться, а не разминуться
+  dunstctl set-pause-level "$DND_WAS" >/dev/null 2>&1 || true
+  DND_WAS=""
+}
+
 stop_recording() {
   is_recording || { echo "запись не идёт" >&2; return 1; }
   local pid name dir; pid="$(val pid)"; name="$(val name)"; dir="$(val dir)"
@@ -258,6 +275,7 @@ mkfifo "$fifo_mic" "$fifo_them"
 PW_MIC=""; PW_THEM=""; FF_MIC=""; FF_THEM=""; WATCH=""
 cleanup() {
   [[ -n "$WATCH" ]] && kill "$WATCH" 2>/dev/null || true
+  dnd_off
   rm -f "$fifo_mic" "$fifo_them"
   [[ "$(val pid)" == "$$" ]] && rm -f "$STATE"       # отметку снимаем только свою
   bar_refresh
@@ -304,6 +322,7 @@ kill -0 $PW_MIC 2>/dev/null && kill -0 $PW_THEM 2>/dev/null || {
   rm -f "$mic_out" "$them_out" "$mix_out"; rmdir "$dir" 2>/dev/null || true
   exit 1
 }
+dnd_on $(( ${MEETREC_NOTIFY:-0} == 1 ? 3 : 0 ))
 relink || echo "[!] не вижу портов микрофона «$MIC» — проверь ./record.sh --list" >&2
 if [[ -n "$APP$STREAM" ]] && ! pw-link -l 2>/dev/null | grep -q "$CAP_THEM:input_FL"; then
   echo "[!] «$APP$STREAM» сейчас молчит: подключится само, как только пойдёт звук." >&2
@@ -323,6 +342,7 @@ done
 kill -TERM $PW_MIC $PW_THEM 2>/dev/null || true
 for ff in $FF_MIC $FF_THEM; do while kill -0 $ff 2>/dev/null; do wait $ff 2>/dev/null || true; done; done
 kill "$WATCH" 2>/dev/null || true; WATCH=""
+dnd_off   # встреча кончилась: накопленное — на экран, и «готово» ниже не застрянет в очереди
 
 # ---- сведение и итоги ------------------------------------------------------------------
 len() { ffprobe -v error -show_entries format=duration -of csv=p=0 "$1" 2>/dev/null || echo 0; }
