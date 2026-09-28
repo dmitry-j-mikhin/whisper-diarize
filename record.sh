@@ -17,6 +17,8 @@
 # Результат — records/<имя записи>/:
 #   <имя>.mic.flac    свой голос, сырой (без эхоподавления и шумодава — их браузер делает у себя)
 #   <имя>.them.flac   остальные участники
+#   <имя>.out.flac    весь выход целиком — страховка при --app/--stream: если поток вкладки
+#                     подвёл (молчит, отвалился), микс собирается из этой дорожки
 #   <имя>.flac        смикшированное моно — вход для ./transcribe.sh (--no-mix отключает)
 #
 # Как устроено: два независимых приёмника pw-record — один подписан на порты микрофона,
@@ -30,6 +32,12 @@
 # и у собеседников (проверено: pw-top показывает, как alsa_output уходит в follower).
 # Плата за независимость — дорожки начинаются не в один сэмпл: микрофонное устройство
 # поднимается позже. Останавливаются они одновременно, поэтому в конце сводим по хвосту.
+#
+# Сводить по хвосту можно, только если дорожка непрерывна. Приёмник без источника по
+# умолчанию не пишет ничего: поток вкладки пропал — и дорожка молча укоротилась. Так было
+# с --stream 24–28.09: после выхода из звонка поток исчезает, сторож ждёт ещё ~10 с, и
+# «они» теряла хвост 11–13 с, а микс сдвигал собеседников на столько же. Поэтому приёмники
+# с node.always-process: без источника они пишут тишину (проверено: 3,00 с за 3 с против 0).
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -198,6 +206,9 @@ fi
 [[ -n "$name" ]] || name="$(date '+%Y-%m-%d %H-%M-%S')"
 dir="records/$name"
 mic_out="$dir/$name.mic.flac"; them_out="$dir/$name.them.flac"; mix_out="$dir/$name.flac"
+# страховочная дорожка «весь выход» — когда «они» пишется не с выхода, а с потока приложения
+BACKUP=0; [[ -n "$APP$STREAM" ]] && BACKUP=1
+out_out="$dir/$name.out.flac"
 [[ -e "$mic_out" ]] && {
   echo "уже есть $mic_out — возьми другое имя" >&2
   notify "Запись встречи" "Не начата: $name уже есть"; exit 1; }
@@ -215,6 +226,7 @@ exec 8>&-
 # ---- связи в PipeWire -----------------------------------------------------------------
 CAP_MIC=meetcap_mic    # имена наших узлов-приёмников: по одному на дорожку
 CAP_THEM=meetcap_them
+CAP_OUT=meetcap_out
 
 # Выходные аудиопорты узлов — строка на узел, id портов по порядку каналов (FL, FR, …).
 # У микрофона это capture_*, у потока приложения output_*, у выхода monitor_* — в pactl
@@ -264,19 +276,21 @@ link_all() {   # <приёмник> exact|app|stream <имя> — каждый �
 
 relink() {
   link_all "$CAP_MIC" exact "$MIC" || return 1
+  if [[ $BACKUP == 1 ]]; then link_all "$CAP_OUT" exact "$SINK" || true; fi
   if   [[ -n "$APP"    ]]; then link_all "$CAP_THEM" app "$APP"
   elif [[ -n "$STREAM" ]]; then link_all "$CAP_THEM" stream "$STREAM"
   else link_all "$CAP_THEM" exact "$SINK"; fi
 }
 
 # ---- запись ---------------------------------------------------------------------------
-fifo_mic="$(mktemp -u "${TMPDIR:-/tmp}/meetrec.XXXXXX")"; fifo_them="$fifo_mic.them"
+fifo_mic="$(mktemp -u "${TMPDIR:-/tmp}/meetrec.XXXXXX")"; fifo_them="$fifo_mic.them"; fifo_out="$fifo_mic.out"
 mkfifo "$fifo_mic" "$fifo_them"
-PW_MIC=""; PW_THEM=""; FF_MIC=""; FF_THEM=""; WATCH=""
+[[ $BACKUP == 1 ]] && mkfifo "$fifo_out"
+PW_MIC=""; PW_THEM=""; PW_OUT=""; FF_MIC=""; FF_THEM=""; FF_OUT=""; WATCH=""
 cleanup() {
   [[ -n "$WATCH" ]] && kill "$WATCH" 2>/dev/null || true
   dnd_off
-  rm -f "$fifo_mic" "$fifo_them"
+  rm -f "$fifo_mic" "$fifo_them" "$fifo_out"
   [[ "$(val pid)" == "$$" ]] && rm -f "$STATE"       # отметку снимаем только свою
   bar_refresh
 }
@@ -286,6 +300,7 @@ echo "[rec] я   <- $MIC"
 if   [[ -n "$APP"    ]]; then echo "[rec] они <- звук приложения $APP"
 elif [[ -n "$STREAM" ]]; then echo "[rec] они <- поток «$STREAM»"
 else echo "[rec] они <- $SINK"; fi
+[[ $BACKUP == 1 ]] && echo "[rec] out <- $SINK (страховка: весь выход)"
 echo "[rec] пишу в records/$name/ , стоп — Ctrl+C"
 notify "Запись встречи" "Пишу: $name${MEETREC_WHY:+ — $MEETREC_WHY}" 2500
 bar_refresh
@@ -300,26 +315,33 @@ encoder() {   # <fifo> <файл> [1 — показывать прогресс]
     -c:a flac -sample_fmt s16 "$2" </dev/null &
 }
 capture() {   # <имя узла> <fifo>
-  # свойства узла только латиницей без пробелов — иначе pw-record ругается на разбор
-  pw-record --target 0 -P node.name="$1" -P media.name=meetrec \
+  # свойства узла только латиницей без пробелов — иначе pw-record ругается на разбор;
+  # always-process — чтобы без источника писалась тишина, а дорожка не укорачивалась (см. шапку)
+  pw-record --target 0 -P node.name="$1" -P media.name=meetrec -P node.always-process=true \
     --channels 2 --channel-map "FL,FR" --format f32 --rate 48000 --latency 200ms - > "$2" &
 }
 
 encoder "$fifo_mic"  "$mic_out" 1; FF_MIC=$!
 encoder "$fifo_them" "$them_out";   FF_THEM=$!
+[[ $BACKUP == 1 ]] && { encoder "$fifo_out" "$out_out"; FF_OUT=$!; }
 capture "$CAP_MIC"  "$fifo_mic";    PW_MIC=$!
 capture "$CAP_THEM" "$fifo_them";   PW_THEM=$!
+[[ $BACKUP == 1 ]] && { capture "$CAP_OUT" "$fifo_out"; PW_OUT=$!; }
 
+caps="${CAP_MIC}|${CAP_THEM}"; ncap=2
+[[ $BACKUP == 1 ]] && { caps+="|${CAP_OUT}"; ncap=3; }
 for _ in $(seq 50); do
-  n=$(pw-link -i 2>/dev/null | grep -cE "^(${CAP_MIC}|${CAP_THEM}):input_FL\$" || true)
-  [[ $n == 2 ]] && break
+  n=$(pw-link -i 2>/dev/null | grep -cE "^(${caps}):input_FL\$" || true)
+  [[ $n == "$ncap" ]] && break
   sleep 0.1
 done
-kill -0 $PW_MIC 2>/dev/null && kill -0 $PW_THEM 2>/dev/null || {
+kill -0 $PW_MIC 2>/dev/null && kill -0 $PW_THEM 2>/dev/null \
+  && { [[ $BACKUP == 0 ]] || kill -0 $PW_OUT 2>/dev/null; } || {
   echo "[!] pw-record не поднялся — записывать нечем" >&2
   notify "Запись встречи" "Не удалось начать: pw-record не поднялся" 5000
-  kill -INT $FF_MIC $FF_THEM 2>/dev/null || true; wait $FF_MIC $FF_THEM 2>/dev/null || true
-  rm -f "$mic_out" "$them_out" "$mix_out"; rmdir "$dir" 2>/dev/null || true
+  kill -TERM $PW_MIC $PW_THEM $PW_OUT 2>/dev/null || true
+  kill -INT $FF_MIC $FF_THEM $FF_OUT 2>/dev/null || true; wait $FF_MIC $FF_THEM $FF_OUT 2>/dev/null || true
+  rm -f "$mic_out" "$them_out" "$out_out" "$mix_out"; rmdir "$dir" 2>/dev/null || true
   exit 1
 }
 dnd_on $(( ${MEETREC_NOTIFY:-0} == 1 ? 3 : 0 ))
@@ -333,36 +355,64 @@ fi
 # Ctrl+C: закрываем pw-record — ffmpeg получает конец потока и дописывает файлы целиком.
 # Именно TERM, а не INT: у фоновой записи (--toggle) SIGINT унаследован игнорируемым
 # и до pw-record не доходит, а TERM работает в обоих случаях.
-# Оба приёмника гасим одним kill, чтобы дорожки кончились в один момент: по их хвостам
+# Все приёмники гасим одним kill, чтобы дорожки кончились в один момент: по их хвостам
 # потом и выравниваем начала.
-trap 'kill -TERM $PW_MIC $PW_THEM 2>/dev/null || true' INT TERM
-while kill -0 $FF_MIC 2>/dev/null && kill -0 $FF_THEM 2>/dev/null; do
-  wait -n $FF_MIC $FF_THEM 2>/dev/null || true
+trap 'kill -TERM $PW_MIC $PW_THEM $PW_OUT 2>/dev/null || true' INT TERM
+all_alive() { local p; for p in $FF_MIC $FF_THEM $FF_OUT; do kill -0 "$p" 2>/dev/null || return 1; done; }
+while all_alive; do
+  wait -n $FF_MIC $FF_THEM $FF_OUT 2>/dev/null || true
 done
-kill -TERM $PW_MIC $PW_THEM 2>/dev/null || true
-for ff in $FF_MIC $FF_THEM; do while kill -0 $ff 2>/dev/null; do wait $ff 2>/dev/null || true; done; done
+kill -TERM $PW_MIC $PW_THEM $PW_OUT 2>/dev/null || true
+for ff in $FF_MIC $FF_THEM $FF_OUT; do while kill -0 $ff 2>/dev/null; do wait $ff 2>/dev/null || true; done; done
 kill "$WATCH" 2>/dev/null || true; WATCH=""
 dnd_off   # встреча кончилась: накопленное — на экран, и «готово» ниже не застрянет в очереди
 
 # ---- сведение и итоги ------------------------------------------------------------------
 len() { ffprobe -v error -show_entries format=duration -of csv=p=0 "$1" 2>/dev/null || echo 0; }
-d_mic=$(len "$mic_out"); d_them=$(len "$them_out")
-dur=$(awk -v a="${d_mic:-0}" -v b="${d_them:-0}" 'BEGIN{print (a>b)?a:b}')
+level() { ffmpeg -hide_banner -nostats -i "$1" -af volumedetect -f null - 2>&1 | awk -F': ' '/mean_volume/ {print $2}'; }
+# RMS каждой секунды, дБ (-inf у цифровой тишины) — строка на секунду
+rms_per_sec() {
+  ffmpeg -hide_banner -nostats -i "$1" \
+    -af "asetnsamples=n=48000,astats=metadata=1:reset=1,ametadata=print:key=lavfi.astats.Overall.RMS_level:file=-" \
+    -f null - 2>/dev/null | awk -F= '/RMS_level/ {print $2}'
+}
+
+# Из чего сводить микс: из «они», а если поток вкладки подвёл — из страховочной «весь выход».
+# Подвёл — это когда на выходе звучало, а в «они» в те же секунды была мёртвая тишина
+# (поток не подцепился, отвалился, сменил имя) хотя бы 5% звучащего времени и не меньше 10 с.
+# Абсолютный порог — от ложных срабатываний: новый поток подцепляется за ≤2 с (опрос relink),
+# а одиночный звук уведомления на выходе на короткой записи сам по себе даёт десятки процентов.
+src_out="$them_out"; src_name="они"
+if [[ $BACKUP == 1 && -s "$out_out" ]]; then
+  read -r lost gap < <(paste <(rms_per_sec "$out_out") <(rms_per_sec "$them_out") | awk '
+    { o=($1=="-inf")?-200:$1; t=($2=="-inf"||$2=="")?-200:$2 }
+    o > -50 { act++; if (t < -80) gap++ }
+    END { printf "%d %d\n", act ? 100*gap/act : 0, gap }')
+  echo "[rec] «они» молчала ${gap:-?} с (${lost:-?}%) из тех, когда на выходе звучало"
+  if (( ${lost:-0} >= 5 && ${gap:-0} >= 10 )); then
+    src_out="$out_out"; src_name="весь выход"
+    echo "[!] поток «$APP$STREAM» подвёл — микс свожу из страховочной дорожки «весь выход»" >&2
+  fi
+fi
+
+d_mic=$(len "$mic_out"); d_src=$(len "$src_out")
+dur=$(awk -v a="${d_mic:-0}" -v b="${d_src:-0}" 'BEGIN{print (a>b)?a:b}')
 # Дорожки писались независимыми потоками и начались не в один сэмпл: устройство микрофона
-# поднимается дольше, чем уже играющий выход. Кончились они одновременно — обоих приёмников
-# погасил один kill, — поэтому разница длительностей и есть сдвиг начал. На него и двигаем.
-off=$(awk -v a="${d_mic:-0}" -v b="${d_them:-0}" 'BEGIN{d=(a-b)*1000; printf "%d", (d<0?-d:d)+0.5}')
+# поднимается дольше, чем уже играющий выход. Кончились они одновременно — всех приёмников
+# погасил один kill, и благодаря always-process без провалов посередине, — поэтому разница
+# длительностей и есть сдвиг начал. На него и двигаем.
+off=$(awk -v a="${d_mic:-0}" -v b="${d_src:-0}" 'BEGIN{d=(a-b)*1000; printf "%d", (d<0?-d:d)+0.5}')
 
 if [[ $MIX == 1 ]]; then
-  echo "[rec] свожу микс, сдвиг дорожек $off мс"
-  if awk -v a="${d_mic:-0}" -v b="${d_them:-0}" 'BEGIN{exit !(a < b)}'; then
+  echo "[rec] свожу микс: я + $src_name, сдвиг дорожек $off мс"
+  if awk -v a="${d_mic:-0}" -v b="${d_src:-0}" 'BEGIN{exit !(a < b)}'; then
     fc="[0:a]adelay=delays=$off:all=1[s];[s][1:a]amix=inputs=2[x]"   # своя началась позже
   else
     fc="[1:a]adelay=delays=$off:all=1[s];[0:a][s]amix=inputs=2[x]"   # чужая началась позже
   fi
-  # микс — дело наживное: не собрался, значит остаёмся с двумя дорожками, они уже на диске
+  # микс — дело наживное: не собрался, значит остаёмся с дорожками, они уже на диске
   ffmpeg -hide_banner -loglevel warning -nostats -n \
-    -i "$mic_out" -i "$them_out" -filter_complex "$fc" \
+    -i "$mic_out" -i "$src_out" -filter_complex "$fc" \
     -map "[x]" -c:a flac -sample_fmt s16 "$mix_out" </dev/null \
     || { echo "[!] микс не собрался — дорожки на месте, своди руками" >&2; MIX=0; }
 fi
@@ -375,10 +425,11 @@ else
 fi
 
 # средний уровень: молчащая дорожка — это забытый мьют или не то устройство
-for f in "$mic_out" "$them_out"; do
-  lv=$(ffmpeg -hide_banner -nostats -i "$f" -af volumedetect -f null - 2>&1 \
-        | awk -F': ' '/mean_volume/ {print $2}')
-  printf '[rec] %-5s %6s  %s\n' "$(basename "${f%.flac}" | sed 's/.*\.//')" "$(du -h "$f" | cut -f1)" "${lv:-?}"
+tracks=("$mic_out" "$them_out"); [[ $BACKUP == 1 ]] && tracks+=("$out_out")
+for f in "${tracks[@]}"; do
+  lv=$(level "$f")
+  printf '[rec] %-5s %6s %9s  %s\n' "$(basename "${f%.flac}" | sed 's/.*\.//')" "$(du -h "$f" | cut -f1)" \
+    "$(awk -v s="$(len "$f")" 'BEGIN{printf "%d:%02d:%02d", s/3600, s%3600/60, s%60}')" "${lv:-?}"
   case "$lv" in -9[0-9]*|-inf*) echo "      ^ тишина: не то устройство? ./record.sh --list" >&2 ;; esac
 done
 [[ $MIX == 1 ]] && echo "[rec] дальше: ./transcribe.sh \"$mix_out\" --diarize"
