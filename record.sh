@@ -24,6 +24,8 @@
 # Как устроено: два независимых приёмника pw-record — один подписан на порты микрофона,
 # другой на порты выхода. Ничего не создаётся и не переключается: в наушниках всё играет
 # как играло, Телемост слышит микрофон как обычно.
+# Микрофон и выход по умолчанию запись ведёт за собой: подключили гарнитуру посреди
+# встречи — дорожки переезжают на неё (раз в 2 с). --mic/--sink прибивают устройство.
 #
 # Врозь, а не одним четырёхканальным узлом — чтобы не сводить два устройства в одну
 # группу PipeWire. Узел, связанный сразу с микрофоном и с выходом, склеивает их: ведущими
@@ -199,6 +201,12 @@ if [[ $list == 1 ]]; then
   exit 0
 fi
 
+# Заданное руками (--mic/--sink) держим всю запись, а взятое по умолчанию ведём за умолчанием:
+# подключил гарнитуру посреди встречи — звук ушёл в неё, туда же переезжает и запись.
+# 30.09 гарнитуру воткнули через ~12 с после старта, а дорожка «весь выход» так и осталась
+# на старом выходе — 38 минут цифровой тишины (у кнопки так же пропала бы вся «они»).
+MIC_PINNED=0;  [[ -n "$MIC"  ]] && MIC_PINNED=1
+SINK_PINNED=0; [[ -n "$SINK" ]] && SINK_PINNED=1
 [[ -n "$MIC"  ]] || MIC="$(pactl get-default-source)"
 [[ -n "$SINK" ]] || SINK="$(pactl get-default-sink)"
 
@@ -272,6 +280,40 @@ link_all() {   # <приёмник> exact|app|stream <имя> — каждый �
   local ports rc=1
   while read -r ports; do link_pair "$ports" "$1" && rc=0; done < <(ports_of "$2" "$3")
   return $rc
+}
+
+unlink_all() {   # <приёмник> — снять все связи, входящие в наш узел
+  local id
+  for id in $(pw-dump 2>/dev/null | jq -r --arg n "$1" '
+      [.[] | select(.type == "PipeWire:Interface:Node" and .info.props["node.name"] == $n) | .id] as $me
+      | .[] | select(.type == "PipeWire:Interface:Link")
+      | select(.info["input-node-id"] as $i | any($me[]; . == $i)) | .id' 2>/dev/null); do
+    pw-link -d "$id" 2>/dev/null || true
+  done
+}
+
+# Умолчание сменилось — старые связи снимаем, а не оставляем в придачу к новым: иначе
+# в «я» писались бы два микрофона сразу, а в «весь выход» — и старый выход, если он заиграет.
+# Новые ставит следующий relink.
+follow_defaults() {
+  local now
+  if (( ! MIC_PINNED )); then
+    now="$(pactl get-default-source 2>/dev/null)" || now=""
+    if [[ -n "$now" && "$now" != "$MIC" ]]; then
+      echo "[rec] $(date +%T) микрофон по умолчанию сменился: $MIC -> $now"
+      unlink_all "$CAP_MIC"; MIC="$now"
+    fi
+  fi
+  if (( ! SINK_PINNED )); then
+    now="$(pactl get-default-sink 2>/dev/null)" || now=""
+    if [[ -n "$now" && "$now" != "$SINK" ]]; then
+      echo "[rec] $(date +%T) выход по умолчанию сменился: $SINK -> $now"
+      if [[ $BACKUP == 1 ]]; then unlink_all "$CAP_OUT"; fi
+      if [[ -z "$APP$STREAM" ]]; then unlink_all "$CAP_THEM"; fi   # у кнопки «они» — это выход
+      SINK="$now"
+    fi
+  fi
+  return 0
 }
 
 relink() {
@@ -349,8 +391,9 @@ relink || echo "[!] не вижу портов микрофона «$MIC» — �
 if [[ -n "$APP$STREAM" ]] && ! pw-link -l 2>/dev/null | grep -q "$CAP_THEM:input_FL"; then
   echo "[!] «$APP$STREAM» сейчас молчит: подключится само, как только пойдёт звук." >&2
 fi
-# поток приложения пересоздаётся при перезаходе в конференцию и смене устройства
-( while :; do relink >/dev/null 2>&1 || true; sleep 2; done ) & WATCH=$!
+# поток приложения пересоздаётся при перезаходе в конференцию и смене устройства,
+# а устройства по умолчанию меняются, когда подключают гарнитуру
+( while :; do follow_defaults; relink >/dev/null 2>&1 || true; sleep 2; done ) & WATCH=$!
 
 # Ctrl+C: закрываем pw-record — ffmpeg получает конец потока и дописывает файлы целиком.
 # Именно TERM, а не INT: у фоновой записи (--toggle) SIGINT унаследован игнорируемым
