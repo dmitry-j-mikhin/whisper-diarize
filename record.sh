@@ -7,6 +7,11 @@
 #   ./record.sh --stream "Звонок в Яндекс Телемосте"   # «они» — только поток с таким именем:
 #                                    # Firefox зовёт потоки по заголовку вкладки (на встречах не проверено)
 #   ./record.sh --list               # какие есть микрофоны и выходы
+#   ./record.sh --call 1             # «они» — свой виртуальный выход «Запись-звонок-1»: его
+#                                    # выбирают динамиком в настройках звонка во вкладке.
+#                                    # Звонков можно писать несколько сразу: --call 1, --call 2…
+#                                    # Каждый — в свою запись, микрофон — в каждую.
+#   ./record.sh --call 1 --stop      # остановить запись этого звонка (и --status, --toggle так же)
 #
 # Управление из панели (waybar) и вообще не из терминала:
 #   ./record.sh --toggle [опции]     # не пишем — запустить в фоне, пишем — остановить
@@ -48,6 +53,7 @@ for t in ffmpeg pactl pw-record pw-link pw-dump jq; do
 done
 
 # Кто сейчас пишет — в файле состояния: его читает и индикатор в панели.
+# У записи звонка (--call N) файл свой: так несколько звонков пишутся параллельно.
 STATE="${XDG_RUNTIME_DIR:-/tmp}/meetrec.state"   # ключ=значение: pid, name, dir, started
 LOG="${XDG_RUNTIME_DIR:-/tmp}/meetrec.log"
 
@@ -95,28 +101,45 @@ stop_recording() {
   return 0
 }
 
-name=""; APP=""; STREAM=""; MIC=""; SINK=""; MIX=1; list=0; mode=""
+name=""; APP=""; STREAM=""; CALL=""; MIC=""; SINK=""; MIX=1; list=0; mode=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --list) list=1; shift ;;
     --app)  APP="${2:?чей звук писать, например --app firefox}"; shift 2 ;;
     --stream) STREAM="${2:?имя потока, например --stream «Звонок в Яндекс Телемосте»}"; shift 2 ;;
+    --call) CALL="${2:?номер звонка, например --call 1}"; shift 2 ;;
     --mic)  MIC="${2:?имя источника, см. --list}"; shift 2 ;;
     --sink) SINK="${2:?имя выхода, см. --list}"; shift 2 ;;
     --no-mix) MIX=0; shift ;;
     --toggle|--stop|--status|--auto) mode="${1#--}"; shift ;;
-    -h|--help) sed -n '2,16p' "$0" | sed 's/^# \?//'; exit 0 ;;
+    -h|--help) sed -n '2,22p' "$0" | sed 's/^# \?//'; exit 0 ;;
     -*) echo "не знаю опцию $1 (см. --help)" >&2; exit 1 ;;
     *)  name="$1"; shift ;;
   esac
 done
 [[ -n "$APP" && -n "$STREAM" ]] && { echo "--app и --stream — что-то одно" >&2; exit 1; }
 
+# Звонок в своём виртуальном выходе. Firefox зовёт потоки по заголовку вкладки, и два звонка
+# SaluteJazz неразличимы: у всех потоков media.name «SaluteJazz», один pid (11.10). Поэтому
+# звонку даём свой выход — null-sink «Запись-звонок-N» с петлёй в выход по умолчанию, чтобы
+# было слышно, — и во вкладке выбираем его динамиком. Выход живёт и после записи: вкладка
+# остаётся на нём, следующая запись подхватит. Убрать: pactl unload-module по номерам из лога.
+VSINK=""
+if [[ -n "$CALL" ]]; then
+  [[ "$CALL" =~ ^[0-9A-Za-z]+$ ]] || { echo "--call — номер или слово латиницей: 1, 2, devops" >&2; exit 1; }
+  [[ -n "$APP$STREAM" ]] && { echo "--call и --app/--stream — что-то одно" >&2; exit 1; }
+  [[ "$mode" == auto ]] && { echo "--call со сторожем --auto не работает" >&2; exit 1; }
+  VSINK="meetcall$CALL"
+  STATE="${XDG_RUNTIME_DIR:-/tmp}/meetrec.call$CALL.state"
+  LOG="${XDG_RUNTIME_DIR:-/tmp}/meetrec.call$CALL.log"
+fi
+
 # запускаем себя же в фоне, отвязав от терминала и от того, кто нас позвал (панель, сторож)
 start_bg() {   # [пояснение в уведомление о старте]
   local args=()
   [[ -n "$APP"  ]] && args+=(--app  "$APP")
   [[ -n "$STREAM" ]] && args+=(--stream "$STREAM")
+  [[ -n "$CALL" ]] && args+=(--call "$CALL")
   [[ -n "$MIC"  ]] && args+=(--mic  "$MIC")
   [[ -n "$SINK" ]] && args+=(--sink "$SINK")
   [[ $MIX == 0  ]] && args+=(--no-mix)
@@ -211,7 +234,7 @@ SINK_PINNED=0; [[ -n "$SINK" ]] && SINK_PINNED=1
 [[ -n "$SINK" ]] || SINK="$(pactl get-default-sink)"
 
 # ---- куда пишем -----------------------------------------------------------------------
-[[ -n "$name" ]] || name="$(date '+%Y-%m-%d %H-%M-%S')"
+[[ -n "$name" ]] || name="$(date '+%Y-%m-%d %H-%M-%S')${CALL:+ звонок-$CALL}"
 dir="records/$name"
 mic_out="$dir/$name.mic.flac"; them_out="$dir/$name.them.flac"; mix_out="$dir/$name.flac"
 # страховочная дорожка «весь выход» — когда «они» пишется не с выхода, а с потока приложения
@@ -235,6 +258,21 @@ exec 8>&-
 CAP_MIC=meetcap_mic    # имена наших узлов-приёмников: по одному на дорожку
 CAP_THEM=meetcap_them
 CAP_OUT=meetcap_out
+if [[ -n "$CALL" ]]; then   # у параллельных записей узлы свои, иначе relink одной снимал бы связи другой
+  CAP_MIC=meetcap_c${CALL}_mic; CAP_THEM=meetcap_c${CALL}_them; CAP_OUT=meetcap_c${CALL}_out
+fi
+
+# Виртуальный выход звонка: создать, если его ещё нет (после прошлой записи он остаётся).
+ensure_vsink() {
+  pactl list short sinks 2>/dev/null | awk '{print $2}' | grep -qx "$VSINK" && return 0
+  local m1 m2
+  m1="$(pactl load-module module-null-sink sink_name="$VSINK" \
+        sink_properties=device.description="Запись-звонок-$CALL")" || return 1
+  # петля в выход по умолчанию — чтобы звонок было слышно; цель не задаём, она идёт за умолчанием
+  m2="$(pactl load-module module-loopback source="$VSINK.monitor" source_dont_move=true latency_msec=40)" || {
+    pactl unload-module "$m1" 2>/dev/null; return 1; }
+  echo "[rec] создан выход «Запись-звонок-$CALL» (модули $m1 $m2): выбери его динамиком в настройках звонка"
+}
 
 # Выходные аудиопорты узлов — строка на узел, id портов по порядку каналов (FL, FR, …).
 # У микрофона это capture_*, у потока приложения output_*, у выхода monitor_* — в pactl
@@ -309,7 +347,7 @@ follow_defaults() {
     if [[ -n "$now" && "$now" != "$SINK" ]]; then
       echo "[rec] $(date +%T) выход по умолчанию сменился: $SINK -> $now"
       if [[ $BACKUP == 1 ]]; then unlink_all "$CAP_OUT"; fi
-      if [[ -z "$APP$STREAM" ]]; then unlink_all "$CAP_THEM"; fi   # у кнопки «они» — это выход
+      if [[ -z "$APP$STREAM$CALL" ]]; then unlink_all "$CAP_THEM"; fi   # у кнопки «они» — это выход
       SINK="$now"
     fi
   fi
@@ -319,7 +357,8 @@ follow_defaults() {
 relink() {
   link_all "$CAP_MIC" exact "$MIC" || return 1
   if [[ $BACKUP == 1 ]]; then link_all "$CAP_OUT" exact "$SINK" || true; fi
-  if   [[ -n "$APP"    ]]; then link_all "$CAP_THEM" app "$APP"
+  if   [[ -n "$CALL"   ]]; then link_all "$CAP_THEM" exact "$VSINK"
+  elif [[ -n "$APP"    ]]; then link_all "$CAP_THEM" app "$APP"
   elif [[ -n "$STREAM" ]]; then link_all "$CAP_THEM" stream "$STREAM"
   else link_all "$CAP_THEM" exact "$SINK"; fi
 }
@@ -338,8 +377,12 @@ cleanup() {
 }
 trap cleanup EXIT
 
+if [[ -n "$CALL" ]]; then
+  ensure_vsink || { echo "[!] не создать выход «Запись-звонок-$CALL»" >&2; exit 1; }
+fi
 echo "[rec] я   <- $MIC"
-if   [[ -n "$APP"    ]]; then echo "[rec] они <- звук приложения $APP"
+if   [[ -n "$CALL"   ]]; then echo "[rec] они <- выход «Запись-звонок-$CALL» ($VSINK)"
+elif [[ -n "$APP"    ]]; then echo "[rec] они <- звук приложения $APP"
 elif [[ -n "$STREAM" ]]; then echo "[rec] они <- поток «$STREAM»"
 else echo "[rec] они <- $SINK"; fi
 [[ $BACKUP == 1 ]] && echo "[rec] out <- $SINK (страховка: весь выход)"
@@ -386,7 +429,7 @@ kill -0 $PW_MIC 2>/dev/null && kill -0 $PW_THEM 2>/dev/null \
   rm -f "$mic_out" "$them_out" "$out_out" "$mix_out"; rmdir "$dir" 2>/dev/null || true
   exit 1
 }
-dnd_on $(( ${MEETREC_NOTIFY:-0} == 1 ? 3 : 0 ))
+[[ -n "$CALL" ]] || dnd_on $(( ${MEETREC_NOTIFY:-0} == 1 ? 3 : 0 ))   # у параллельных записей пауза перетиралась бы
 relink || echo "[!] не вижу портов микрофона «$MIC» — проверь ./record.sh --list" >&2
 if [[ -n "$APP$STREAM" ]] && ! pw-link -l 2>/dev/null | grep -q "$CAP_THEM:input_FL"; then
   echo "[!] «$APP$STREAM» сейчас молчит: подключится само, как только пойдёт звук." >&2
