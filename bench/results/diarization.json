@@ -1,0 +1,750 @@
+{
+ "public": {
+  "nemotron-diar": {
+   "ami": [
+    {
+     "der": 19.5,
+     "miss": 16.03,
+     "fa": 2.67,
+     "conf": 0.8,
+     "ref_speakers": 4,
+     "hyp_speakers": 4,
+     "id": "ami-01",
+     "dur": 1786.85,
+     "wall": 36.5,
+     "vram": 546,
+     "rss": 0.83
+    },
+    {
+     "der": 22.52,
+     "miss": 20.24,
+     "fa": 1.72,
+     "conf": 0.56,
+     "ref_speakers": 4,
+     "hyp_speakers": 4,
+     "id": "ami-02",
+     "dur": 1505.64,
+     "wall": 31.2,
+     "vram": 546,
+     "rss": 0.78
+    },
+    {
+     "der": 10.62,
+     "miss": 8.21,
+     "fa": 2.06,
+     "conf": 0.34,
+     "ref_speakers": 4,
+     "hyp_speakers": 4,
+     "id": "ami-03",
+     "dur": 2334.37,
+     "wall": 47.4,
+     "vram": 546,
+     "rss": 0.92
+    },
+    {
+     "der": 11.04,
+     "miss": 8.52,
+     "fa": 2.18,
+     "conf": 0.34,
+     "ref_speakers": 4,
+     "hyp_speakers": 5,
+     "id": "ami-04",
+     "dur": 2345.49,
+     "wall": 47.9,
+     "vram": 546,
+     "rss": 0.92
+    }
+   ],
+   "vox": [
+    {
+     "der": 2.32,
+     "miss": 1.14,
+     "fa": 0.96,
+     "conf": 0.23,
+     "ref_speakers": 7,
+     "hyp_speakers": 8,
+     "id": "vox-01",
+     "dur": 1200.06,
+     "wall": 24.7,
+     "vram": 546,
+     "rss": 0.73
+    },
+    {
+     "der": 9.18,
+     "miss": 5.21,
+     "fa": 0.86,
+     "conf": 3.12,
+     "ref_speakers": 12,
+     "hyp_speakers": 8,
+     "id": "vox-02",
+     "dur": 1200.06,
+     "wall": 24.8,
+     "vram": 546,
+     "rss": 0.73
+    },
+    {
+     "der": 4.86,
+     "miss": 0.52,
+     "fa": 2.32,
+     "conf": 2.02,
+     "ref_speakers": 9,
+     "hyp_speakers": 8,
+     "id": "vox-05",
+     "dur": 1200.06,
+     "wall": 25.4,
+     "vram": 546,
+     "rss": 0.73
+    },
+    {
+     "der": 8.57,
+     "miss": 3.85,
+     "fa": 0.58,
+     "conf": 4.15,
+     "ref_speakers": 10,
+     "hyp_speakers": 8,
+     "id": "vox-06",
+     "dur": 1200.06,
+     "wall": 25.3,
+     "vram": 546,
+     "rss": 0.73
+    },
+    {
+     "der": 11.64,
+     "miss": 0.87,
+     "fa": 4.26,
+     "conf": 6.51,
+     "ref_speakers": 8,
+     "hyp_speakers": 8,
+     "id": "vox-07",
+     "dur": 175.49,
+     "wall": 4.4,
+     "vram": 546,
+     "rss": 0.55
+    },
+    {
+     "der": 6.11,
+     "miss": 1.78,
+     "fa": 2.45,
+     "conf": 1.88,
+     "ref_speakers": 10,
+     "hyp_speakers": 7,
+     "id": "vox-08",
+     "dur": 1200.06,
+     "wall": 24.8,
+     "vram": 546,
+     "rss": 0.73
+    },
+    {
+     "der": 15.24,
+     "miss": 6.98,
+     "fa": 1.33,
+     "conf": 6.94,
+     "ref_speakers": 15,
+     "hyp_speakers": 8,
+     "id": "vox-09",
+     "dur": 308.86,
+     "wall": 7.1,
+     "vram": 546,
+     "rss": 0.58
+    },
+    {
+     "der": 6.06,
+     "miss": 2.04,
+     "fa": 3.63,
+     "conf": 0.39,
+     "ref_speakers": 8,
+     "hyp_speakers": 8,
+     "id": "vox-14",
+     "dur": 1011.2,
+     "wall": 21.6,
+     "vram": 546,
+     "rss": 0.7
+    },
+    {
+     "der": 13.93,
+     "miss": 4.48,
+     "fa": 1.08,
+     "conf": 8.36,
+     "ref_speakers": 15,
+     "hyp_speakers": 8,
+     "id": "vox-15",
+     "dur": 470.02,
+     "wall": 10.3,
+     "vram": 546,
+     "rss": 0.61
+    },
+    {
+     "der": 16.43,
+     "miss": 5.31,
+     "fa": 1.31,
+     "conf": 9.81,
+     "ref_speakers": 12,
+     "hyp_speakers": 8,
+     "id": "vox-16",
+     "dur": 1131.2,
+     "wall": 23.7,
+     "vram": 546,
+     "rss": 0.72
+    },
+    {
+     "der": 5.94,
+     "miss": 1.97,
+     "fa": 1.33,
+     "conf": 2.64,
+     "ref_speakers": 11,
+     "hyp_speakers": 8,
+     "id": "vox-21",
+     "dur": 1200.06,
+     "wall": 25.4,
+     "vram": 546,
+     "rss": 0.73
+    }
+   ]
+  },
+  "community-1": {
+   "ami": [
+    {
+     "der": 17.23,
+     "miss": 9.85,
+     "fa": 2.13,
+     "conf": 5.26,
+     "ref_speakers": 4,
+     "hyp_speakers": 4,
+     "id": "ami-01",
+     "dur": 1786.85,
+     "wall": 88.6,
+     "vram": 2132,
+     "rss": 1.88
+    },
+    {
+     "der": 13.96,
+     "miss": 9.94,
+     "fa": 1.87,
+     "conf": 2.15,
+     "ref_speakers": 4,
+     "hyp_speakers": 4,
+     "id": "ami-02",
+     "dur": 1505.64,
+     "wall": 71.5,
+     "vram": 2132,
+     "rss": 1.86
+    },
+    {
+     "der": 8.41,
+     "miss": 3.51,
+     "fa": 3.42,
+     "conf": 1.49,
+     "ref_speakers": 4,
+     "hyp_speakers": 5,
+     "id": "ami-03",
+     "dur": 2334.37,
+     "wall": 109.9,
+     "vram": 2132,
+     "rss": 1.95
+    },
+    {
+     "der": 8.67,
+     "miss": 4.25,
+     "fa": 2.44,
+     "conf": 1.98,
+     "ref_speakers": 4,
+     "hyp_speakers": 5,
+     "id": "ami-04",
+     "dur": 2345.49,
+     "wall": 111.5,
+     "vram": 2134,
+     "rss": 1.97
+    }
+   ],
+   "vox": [
+    {
+     "der": 11.72,
+     "miss": 1.52,
+     "fa": 1.49,
+     "conf": 8.7,
+     "ref_speakers": 7,
+     "hyp_speakers": 8,
+     "id": "vox-01",
+     "dur": 1200.06,
+     "wall": 60.1,
+     "vram": 2132,
+     "rss": 1.86
+    },
+    {
+     "der": 8.31,
+     "miss": 1.12,
+     "fa": 3.17,
+     "conf": 4.02,
+     "ref_speakers": 12,
+     "hyp_speakers": 12,
+     "id": "vox-02",
+     "dur": 1200.06,
+     "wall": 58.5,
+     "vram": 2132,
+     "rss": 1.85
+    },
+    {
+     "der": 4.81,
+     "miss": 3.03,
+     "fa": 0.48,
+     "conf": 1.31,
+     "ref_speakers": 9,
+     "hyp_speakers": 9,
+     "id": "vox-05",
+     "dur": 1200.06,
+     "wall": 59.0,
+     "vram": 2132,
+     "rss": 1.86
+    },
+    {
+     "der": 4.45,
+     "miss": 1.74,
+     "fa": 1.38,
+     "conf": 1.34,
+     "ref_speakers": 10,
+     "hyp_speakers": 10,
+     "id": "vox-06",
+     "dur": 1200.06,
+     "wall": 60.3,
+     "vram": 2132,
+     "rss": 1.87
+    },
+    {
+     "der": 22.57,
+     "miss": 11.45,
+     "fa": 2.67,
+     "conf": 8.45,
+     "ref_speakers": 8,
+     "hyp_speakers": 6,
+     "id": "vox-07",
+     "dur": 175.49,
+     "wall": 13.8,
+     "vram": 2132,
+     "rss": 1.74
+    },
+    {
+     "der": 8.02,
+     "miss": 0.95,
+     "fa": 3.88,
+     "conf": 3.19,
+     "ref_speakers": 10,
+     "hyp_speakers": 8,
+     "id": "vox-08",
+     "dur": 1200.06,
+     "wall": 60.2,
+     "vram": 2132,
+     "rss": 1.85
+    },
+    {
+     "der": 4.83,
+     "miss": 0.86,
+     "fa": 0.78,
+     "conf": 3.19,
+     "ref_speakers": 15,
+     "hyp_speakers": 11,
+     "id": "vox-09",
+     "dur": 308.86,
+     "wall": 19.6,
+     "vram": 2132,
+     "rss": 1.75
+    },
+    {
+     "der": 7.53,
+     "miss": 2.79,
+     "fa": 0.75,
+     "conf": 3.99,
+     "ref_speakers": 8,
+     "hyp_speakers": 8,
+     "id": "vox-14",
+     "dur": 1011.2,
+     "wall": 50.6,
+     "vram": 2134,
+     "rss": 1.82
+    },
+    {
+     "der": 10.07,
+     "miss": 1.59,
+     "fa": 0.71,
+     "conf": 7.77,
+     "ref_speakers": 15,
+     "hyp_speakers": 13,
+     "id": "vox-15",
+     "dur": 470.02,
+     "wall": 26.5,
+     "vram": 2132,
+     "rss": 1.77
+    },
+    {
+     "der": 10.51,
+     "miss": 1.99,
+     "fa": 4.96,
+     "conf": 3.55,
+     "ref_speakers": 12,
+     "hyp_speakers": 9,
+     "id": "vox-16",
+     "dur": 1131.2,
+     "wall": 55.9,
+     "vram": 2132,
+     "rss": 1.84
+    },
+    {
+     "der": 7.1,
+     "miss": 0.85,
+     "fa": 3.67,
+     "conf": 2.58,
+     "ref_speakers": 11,
+     "hyp_speakers": 11,
+     "id": "vox-21",
+     "dur": 1200.06,
+     "wall": 59.3,
+     "vram": 2132,
+     "rss": 1.86
+    }
+   ]
+  },
+  "pyannote-3.1": {
+   "ami": [
+    {
+     "der": 19.01,
+     "miss": 9.85,
+     "fa": 2.13,
+     "conf": 7.03,
+     "ref_speakers": 4,
+     "hyp_speakers": 5,
+     "id": "ami-01",
+     "dur": 1786.85,
+     "wall": 85.1,
+     "vram": 2132,
+     "rss": 1.9
+    },
+    {
+     "der": 15.56,
+     "miss": 9.94,
+     "fa": 1.87,
+     "conf": 3.75,
+     "ref_speakers": 4,
+     "hyp_speakers": 2,
+     "id": "ami-02",
+     "dur": 1505.64,
+     "wall": 72.3,
+     "vram": 2132,
+     "rss": 1.87
+    },
+    {
+     "der": 8.29,
+     "miss": 3.51,
+     "fa": 3.42,
+     "conf": 1.36,
+     "ref_speakers": 4,
+     "hyp_speakers": 4,
+     "id": "ami-03",
+     "dur": 2334.37,
+     "wall": 109.3,
+     "vram": 2132,
+     "rss": 1.93
+    },
+    {
+     "der": 8.03,
+     "miss": 4.25,
+     "fa": 2.44,
+     "conf": 1.35,
+     "ref_speakers": 4,
+     "hyp_speakers": 4,
+     "id": "ami-04",
+     "dur": 2345.49,
+     "wall": 110.0,
+     "vram": 2134,
+     "rss": 1.93
+    }
+   ],
+   "vox": [
+    {
+     "der": 4.66,
+     "miss": 1.52,
+     "fa": 1.49,
+     "conf": 1.64,
+     "ref_speakers": 7,
+     "hyp_speakers": 7,
+     "id": "vox-01",
+     "dur": 1200.06,
+     "wall": 58.8,
+     "vram": 2132,
+     "rss": 1.85
+    },
+    {
+     "der": 5.71,
+     "miss": 1.12,
+     "fa": 3.17,
+     "conf": 1.42,
+     "ref_speakers": 12,
+     "hyp_speakers": 12,
+     "id": "vox-02",
+     "dur": 1200.06,
+     "wall": 59.9,
+     "vram": 2132,
+     "rss": 1.88
+    },
+    {
+     "der": 4.88,
+     "miss": 3.03,
+     "fa": 0.48,
+     "conf": 1.37,
+     "ref_speakers": 9,
+     "hyp_speakers": 9,
+     "id": "vox-05",
+     "dur": 1200.06,
+     "wall": 59.3,
+     "vram": 2132,
+     "rss": 1.86
+    },
+    {
+     "der": 4.74,
+     "miss": 1.74,
+     "fa": 1.38,
+     "conf": 1.63,
+     "ref_speakers": 10,
+     "hyp_speakers": 9,
+     "id": "vox-06",
+     "dur": 1200.06,
+     "wall": 59.1,
+     "vram": 2132,
+     "rss": 1.85
+    },
+    {
+     "der": 30.01,
+     "miss": 11.45,
+     "fa": 2.67,
+     "conf": 15.9,
+     "ref_speakers": 8,
+     "hyp_speakers": 4,
+     "id": "vox-07",
+     "dur": 175.49,
+     "wall": 13.7,
+     "vram": 2132,
+     "rss": 1.74
+    },
+    {
+     "der": 8.55,
+     "miss": 0.95,
+     "fa": 3.88,
+     "conf": 3.72,
+     "ref_speakers": 10,
+     "hyp_speakers": 6,
+     "id": "vox-08",
+     "dur": 1200.06,
+     "wall": 58.5,
+     "vram": 2132,
+     "rss": 1.85
+    },
+    {
+     "der": 6.09,
+     "miss": 0.86,
+     "fa": 0.78,
+     "conf": 4.45,
+     "ref_speakers": 15,
+     "hyp_speakers": 8,
+     "id": "vox-09",
+     "dur": 308.86,
+     "wall": 20.2,
+     "vram": 2132,
+     "rss": 1.75
+    },
+    {
+     "der": 6.96,
+     "miss": 2.79,
+     "fa": 0.75,
+     "conf": 3.42,
+     "ref_speakers": 8,
+     "hyp_speakers": 8,
+     "id": "vox-14",
+     "dur": 1011.2,
+     "wall": 50.4,
+     "vram": 2134,
+     "rss": 1.82
+    },
+    {
+     "der": 10.17,
+     "miss": 1.59,
+     "fa": 0.71,
+     "conf": 7.86,
+     "ref_speakers": 15,
+     "hyp_speakers": 8,
+     "id": "vox-15",
+     "dur": 470.02,
+     "wall": 26.7,
+     "vram": 2132,
+     "rss": 1.77
+    },
+    {
+     "der": 12.16,
+     "miss": 1.99,
+     "fa": 4.96,
+     "conf": 5.2,
+     "ref_speakers": 12,
+     "hyp_speakers": 9,
+     "id": "vox-16",
+     "dur": 1131.2,
+     "wall": 55.8,
+     "vram": 2132,
+     "rss": 1.82
+    },
+    {
+     "der": 7.02,
+     "miss": 0.85,
+     "fa": 3.67,
+     "conf": 2.5,
+     "ref_speakers": 11,
+     "hyp_speakers": 10,
+     "id": "vox-21",
+     "dur": 1200.06,
+     "wall": 59.7,
+     "vram": 2132,
+     "rss": 1.85
+    }
+   ]
+  },
+  "vibevoice-4bit": {
+   "ami": [
+    {
+     "id": "ami-01",
+     "error": "CUDA out of memory. Tried to allocate 488.00 MiB. GPU 0 has a total capacity of 7.66 GiB of which 470.25 MiB is free. Including non-PyTorch memory, this process has 7.19 GiB memory in use. Of the allo",
+     "dur": 1786.85
+    },
+    {
+     "id": "ami-02",
+     "error": "CUDA out of memory. Tried to allocate 412.00 MiB. GPU 0 has a total capacity of 7.66 GiB of which 60.25 MiB is free. Including non-PyTorch memory, this process has 7.59 GiB memory in use. Of the alloc",
+     "dur": 1505.64
+    },
+    {
+     "id": "ami-03",
+     "error": "CUDA out of memory. Tried to allocate 352.00 MiB. GPU 0 has a total capacity of 7.66 GiB of which 298.25 MiB is free. Including non-PyTorch memory, this process has 7.36 GiB memory in use. Of the allo",
+     "dur": 2334.37
+    },
+    {
+     "id": "ami-04",
+     "error": "CUDA out of memory. Tried to allocate 352.00 MiB. GPU 0 has a total capacity of 7.66 GiB of which 296.25 MiB is free. Including non-PyTorch memory, this process has 7.36 GiB memory in use. Of the allo",
+     "dur": 2345.49
+    }
+   ]
+  },
+  "nemotron-transcribe-cpu": {
+   "ami": []
+  }
+ },
+ "meetings": {
+  "A": {
+   "nemotron-diar": {
+    "hyp_speakers": 7,
+    "owner_frames_s": 1159,
+    "other_frames_s": 1361,
+    "owner_recall": 91.5,
+    "owner_missed": 7.0,
+    "other_as_owner": 5.5,
+    "other_missed": 3.2,
+    "owner_clusters_over_5pct": 1,
+    "wall": 63.7,
+    "vram": 546,
+    "rss": 1.05
+   },
+   "community-1": {
+    "hyp_speakers": 7,
+    "owner_frames_s": 1159,
+    "other_frames_s": 1361,
+    "owner_recall": 88.4,
+    "owner_missed": 10.2,
+    "other_as_owner": 4.7,
+    "other_missed": 3.3,
+    "owner_clusters_over_5pct": 1,
+    "wall": 146.0,
+    "vram": 2132,
+    "rss": 2.08
+   },
+   "pyannote-3.1": {
+    "hyp_speakers": 7,
+    "owner_frames_s": 1159,
+    "other_frames_s": 1361,
+    "owner_recall": 88.4,
+    "owner_missed": 10.2,
+    "other_as_owner": 4.2,
+    "other_missed": 3.3,
+    "owner_clusters_over_5pct": 1,
+    "wall": 145.6,
+    "vram": 2132,
+    "rss": 2.04
+   },
+   "vibevoice-4bit": {
+    "error": "CUDA out of memory. Tried to allocate 352.00 MiB. GPU 0 has a total capacity of 7.66 GiB of which 184.25 MiB is free. Including non-PyTorch memory, this process has 7.47 GiB memory in use. Of the allo"
+   },
+   "_nemotron_vs_community1": {
+    "der": 6.67,
+    "miss": 1.45,
+    "fa": 3.65,
+    "conf": 1.57,
+    "ref_speakers": 7,
+    "hyp_speakers": 7
+   }
+  },
+  "B": {
+   "nemotron-diar": {
+    "hyp_speakers": 8,
+    "owner_frames_s": 578,
+    "other_frames_s": 751,
+    "owner_recall": 88.4,
+    "owner_missed": 9.4,
+    "other_as_owner": 4.4,
+    "other_missed": 3.2,
+    "owner_clusters_over_5pct": 1,
+    "wall": 35.6,
+    "vram": 546,
+    "rss": 0.81
+   },
+   "community-1": {
+    "hyp_speakers": 8,
+    "owner_frames_s": 578,
+    "other_frames_s": 751,
+    "owner_recall": 86.5,
+    "owner_missed": 11.4,
+    "other_as_owner": 3.4,
+    "other_missed": 3.8,
+    "owner_clusters_over_5pct": 1,
+    "wall": 82.1,
+    "vram": 2132,
+    "rss": 1.89
+   },
+   "pyannote-3.1": {
+    "hyp_speakers": 8,
+    "owner_frames_s": 578,
+    "other_frames_s": 751,
+    "owner_recall": 86.6,
+    "owner_missed": 11.4,
+    "other_as_owner": 2.7,
+    "other_missed": 3.8,
+    "owner_clusters_over_5pct": 1,
+    "wall": 81.9,
+    "vram": 2132,
+    "rss": 1.9
+   },
+   "vibevoice-4bit": {
+    "error": "CUDA out of memory. Tried to allocate 466.00 MiB. GPU 0 has a total capacity of 7.66 GiB of which 414.25 MiB is free. Including non-PyTorch memory, this process has 7.25 GiB memory in use. Of the allo"
+   },
+   "nemotron-transcribe-cpu": {
+    "hyp_speakers": 7,
+    "owner_frames_s": 578,
+    "other_frames_s": 751,
+    "owner_recall": 87.1,
+    "owner_missed": 10.6,
+    "other_as_owner": 4.8,
+    "other_missed": 5.2,
+    "owner_clusters_over_5pct": 1
+   },
+   "_nemotron_vs_community1": {
+    "der": 8.92,
+    "miss": 1.86,
+    "fa": 4.45,
+    "conf": 2.61,
+    "ref_speakers": 8,
+    "hyp_speakers": 8
+   }
+  }
+ }
+}

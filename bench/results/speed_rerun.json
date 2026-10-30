@@ -1,0 +1,166 @@
+{
+ "asr": {
+  "canary-1b-v2": {
+   "A": {
+    "load_s": 48.3,
+    "infer_s": 41.8,
+    "audio_s": 2921.6,
+    "speed_x": 69.9,
+    "vram_mib": 5312,
+    "load_before": 3.3,
+    "load_after": 3.2,
+    "exit": 0
+   },
+   "fleurs": {
+    "load_s": 42.2,
+    "infer_s": 66.7,
+    "audio_s": 5767.5,
+    "speed_x": 86.5,
+    "vram_mib": 5412,
+    "load_before": 3.2,
+    "load_after": 3.4,
+    "exit": 0
+   }
+  },
+  "gigaam-multi": {
+   "A": {
+    "load_s": 12.3,
+    "infer_s": 9.8,
+    "audio_s": 2921.6,
+    "speed_x": 298.1,
+    "vram_mib": 2120,
+    "load_before": 4.3,
+    "load_after": 3.9,
+    "exit": 0
+   },
+   "fleurs": {
+    "load_s": 13.3,
+    "infer_s": 19.3,
+    "audio_s": 5767.5,
+    "speed_x": 298.8,
+    "vram_mib": 2026,
+    "load_before": 3.9,
+    "load_after": 3.3,
+    "exit": 0
+   }
+  },
+  "gigaam-v3": {
+   "A": {
+    "load_s": 6.2,
+    "infer_s": 10.2,
+    "audio_s": 2921.6,
+    "speed_x": 286.4,
+    "vram_mib": 1186,
+    "load_before": 4.7,
+    "load_after": 4.7,
+    "exit": 0
+   },
+   "fleurs": {
+    "load_s": 4.3,
+    "infer_s": 18.8,
+    "audio_s": 5767.5,
+    "speed_x": 306.8,
+    "vram_mib": 1300,
+    "load_before": 4.7,
+    "load_after": 4.3,
+    "exit": 0
+   }
+  },
+  "parakeet-nsc": {
+   "A": {
+    "load_s": 0.0,
+    "infer_s": 16.8,
+    "audio_s": 2921.6,
+    "speed_x": 173.9,
+    "vram_mib": 1380,
+    "load_before": 3.3,
+    "load_after": 3.3,
+    "exit": 0
+   },
+   "fleurs": {
+    "load_s": 0.0,
+    "infer_s": 31.1,
+    "audio_s": 5767.5,
+    "speed_x": 185.5,
+    "vram_mib": 1168,
+    "load_before": 3.3,
+    "load_after": 3.3,
+    "exit": 0
+   }
+  },
+  "qwen3-1.7b": {
+   "A": {
+    "load_s": 11.6,
+    "infer_s": 107.1,
+    "audio_s": 2921.6,
+    "speed_x": 27.3,
+    "vram_mib": 7756,
+    "load_before": 3.4,
+    "load_after": 2.1,
+    "exit": 0
+   },
+   "fleurs": {
+    "load_s": 7.1,
+    "infer_s": 142.0,
+    "audio_s": 5767.5,
+    "speed_x": 40.6,
+    "vram_mib": 7586,
+    "load_before": 2.1,
+    "load_after": 1.6,
+    "exit": 0
+   }
+  },
+  "whisper-large-v3": {
+   "A": {
+    "load_s": 7.0,
+    "infer_s": 293.9,
+    "audio_s": 2921.6,
+    "speed_x": 9.9,
+    "vram_mib": 5132,
+    "load_before": 1.6,
+    "load_after": 2.0,
+    "exit": 0
+   },
+   "fleurs": {
+    "load_s": 5.1,
+    "infer_s": 553.2,
+    "audio_s": 5767.5,
+    "speed_x": 10.4,
+    "vram_mib": 4108,
+    "load_before": 2.0,
+    "load_after": 5.2,
+    "exit": 0
+   }
+  }
+ },
+ "diar": {
+  "community-1": {
+   "B": {
+    "wall_s": 85.9,
+    "vram_mib": 2132,
+    "load_before": 3.5,
+    "exit": 0
+   },
+   "ami-01": {
+    "wall_s": 87.5,
+    "vram_mib": 2132,
+    "load_before": 2.9,
+    "exit": 0
+   }
+  },
+  "nemotron-diar": {
+   "B": {
+    "wall_s": 37.6,
+    "vram_mib": 546,
+    "load_before": 5.2,
+    "exit": 0
+   },
+   "ami-01": {
+    "wall_s": 39.3,
+    "vram_mib": 546,
+    "load_before": 4.0,
+    "exit": 0
+   }
+  }
+ }
+}
